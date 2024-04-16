@@ -35,6 +35,34 @@ def filter_road_sequence(sequence):
     return out
 
 
+def merge_linked_locations(roads: list):
+    """Merge road chains that are linked with 'superstedfesting' to their respective roads chain sequences
+
+    Args:
+        roads (list): list of NVDB road sequences
+    """
+    for sequence in roads:
+        for chain in sequence["veglenker"]:
+            if "superstedfesting" in chain:
+                new_chain = chain.copy()
+                link_info = new_chain.pop("superstedfesting")
+                linked_sequence = next(seq for seq in roads if seq["veglenkesekvensid"] == link_info["veglenkesekvensid"])
+
+                new_chain["startposisjon"] = link_info["startposisjon"]
+                new_chain["sluttposisjon"] = link_info["sluttposisjon"]
+                new_chain["feltoversikt"] = link_info["kjørefelt"]
+
+                new_chains = []
+                for linked_chain in linked_sequence["veglenker"]:
+                    if linked_chain["veglenkenummer"] == new_chain["veglenkenummer"]:
+                        new_chains.append(new_chain)
+                    else:
+                        new_chains.append(linked_chain)
+                linked_sequence["veglenker"] = new_chains
+
+                chain["sluttdato"] = "MOVED"  # mark original chain as outdated
+
+
 def startBasicXODRFile() -> Element:
     root = ET.Element("OpenDRIVE")
     header = ET.SubElement(root, "header", revMajor="1", revMinor="8", name="Glosehaugen", version="0.02", date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
@@ -140,6 +168,8 @@ def fillNormalRoad(root: Element, sequence):
 
 if __name__ == "__main__":
     roads = load_json(get_file_path("veglenkesekvens2.json"))
+
+    merge_linked_locations(roads)
 
     root = startBasicXODRFile()
 
