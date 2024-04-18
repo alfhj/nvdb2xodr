@@ -20,12 +20,20 @@ class Lane:
         self.same_direction = same_direction
         self.id = None
 
+    def get_xodr_lane_type(self):
+        return {
+            LaneType.NORMAL: "driving",
+            LaneType.BICYCLE: "biking",
+            LaneType.LEFT_TURN: "exit",
+            LaneType.RIGHT_TURN: "exit"
+        }.get(self.lane_type, "driving")
+
 
 class Road:
     def __init__(self):
         self.same_lanes = [] # ordered from center to edge
         self.opposite_lanes = [] # ordered from center to edge
-    
+
     def add_lane(self, lane: Lane):
         if lane.same_direction:
             lane.id = len(self.same_lanes) + 1
@@ -33,7 +41,7 @@ class Road:
         else:
             lane.id = -(len(self.opposite_lanes) + 1)
             self.opposite_lanes.append(lane)
-    
+
     def get_lanes(self) -> list[Lane]:
         center_lane = Lane(LaneType.INVALID, True)
         return sorted(self.opposite_lanes, key=lambda l: l.id) + [center_lane] + sorted(self.same_lanes, key=lambda l: l.id)

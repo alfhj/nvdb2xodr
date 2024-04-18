@@ -2,8 +2,8 @@ DATA_PATH = "../Notebooks"
 
 #detail_levels = set(chain.get("detaljnivå") for seq in nvdb for chain in seq["veglenker"])
 detail_levels = [
-    "Kjørebane",
-    #"Vegtrase",
+    #"Kjørebane",
+    "Vegtrase",
     "Vegtrase og kjørebane"
 ]
 road_types = [

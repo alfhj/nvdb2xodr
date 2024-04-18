@@ -42,7 +42,7 @@ def merge_linked_locations(roads: list):
         roads (list): list of NVDB road sequences
     """
     for sequence in roads:
-        for chain in sequence["veglenker"]:
+        for chain in filter_road_sequence(sequence):
             if "superstedfesting" in chain:
                 new_chain = chain.copy()
                 link_info = new_chain.pop("superstedfesting")
@@ -157,7 +157,7 @@ def fillNormalRoad(root: Element, sequence):
                 continue
 
             parent = right if nvdb_lane.same_direction else left
-            lane = ET.SubElement(parent, "lane", id=str(nvdb_lane.id), type="driving", level="false")
+            lane = ET.SubElement(parent, "lane", id=str(nvdb_lane.id), type=nvdb_lane.get_xodr_lane_type(), level="false")
             ET.SubElement(lane, "link")
             ET.SubElement(lane, "width", sOffset="0.0", a="4.00e+00", b="0.0", c="0.00", d="0.00")
             ET.SubElement(lane, "roadMark", sOffset="0.00", type="solid", material="standard", color="white", laneChange="none")
