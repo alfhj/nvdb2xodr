@@ -2,8 +2,10 @@ from pathlib import Path
 import numpy as np
 import json
 
+import pyproj
+
 from .road import Road, Lane, LaneType
-from .constants import DATA_PATH
+from .constants import CENTER_COORDS, DATA_PATH
 
 
 def dump_json(obj, path, pretty=True):
@@ -67,3 +69,12 @@ def get_road(input: list[str]) -> Road:
         road.add_lane(lane)
 
     return road
+
+
+#transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:5973")
+transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:25833")
+center = transform.transform(CENTER_COORDS[0], CENTER_COORDS[1])
+
+
+def get_relative_coordinates(x, y):
+    return (x - center[0], y - center[1])

@@ -2,9 +2,9 @@ import re
 import lxml.etree as ET
 from lxml.etree import Element, ElementTree
 from datetime import datetime
-from src.utils import giveHeading, distance, load_json, get_road, get_file_path
+from src.utils import get_relative_coordinates, giveHeading, distance, load_json, get_road, get_file_path
 from src.road import LaneType
-from src.constants import road_types, detail_levels
+from src.constants import CENTER_COORDS, road_types, detail_levels
 
 
 def SubElement(parent: Element, **kwargs):
@@ -66,8 +66,8 @@ def merge_linked_locations(roads: list):
 def startBasicXODRFile() -> Element:
     root = ET.Element("OpenDRIVE")
     header = ET.SubElement(root, "header", revMajor="1", revMinor="8", name="Glosehaugen", version="0.02", date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-    ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0=0 +lon_0=0 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m +no_defs")
-
+    #ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0=0 +lon_0=0 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
+    ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0={CENTER_COORDS[0]} +lon_0={CENTER_COORDS[1]} +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
     return root
 
 
@@ -78,7 +78,7 @@ def fillNormalRoad(root: Element, sequence):
     #ET.SubElement(link, "predecessor", elementType="junction", elementId=road_input["startJunction"])
     #ET.SubElement(link, "successor", elementType="junction", elementId=road_input["endJunction"])
     roadType = ET.SubElement(road, "type", s="0.0", type="town")
-    ET.SubElement(roadType, "speed", max="40", unit="kmh")
+    ET.SubElement(roadType, "speed", max="50", unit="km/h")
 
     # create geometry
     planView = ET.SubElement(road, "planView")
@@ -102,11 +102,13 @@ def fillNormalRoad(root: Element, sequence):
         x1, y1, z1 = points[i]
         x2, y2, z2 = points[i+1]
 
-        if z1 == -999999:  # missing z placeholder
-            if z2 == -999999:
-                raise Exception("-999999 encountered")
-            z1 = z2
+        if z2 == -999999:  # missing z placeholder
+            _, _, z3 = points[i+2]
+            z2 = (z1 + z3) / 2
+            points[i+1] = (x2, y2, z2)
 
+        x1, y1 = get_relative_coordinates(x1, y1)
+        x2, y2 = get_relative_coordinates(x2, y2)
         heading = giveHeading(x1, y1, x2, y2)
         length = distance(x1, y1, x2, y2)
         lengths.append(length)
@@ -153,14 +155,15 @@ def fillNormalRoad(root: Element, sequence):
         for nvdb_lane in nvdb_road.get_lanes():
             if nvdb_lane.lane_type == LaneType.INVALID:
                 lane = ET.SubElement(center, "lane", id="0", type="none", level="false")
-                ET.SubElement(lane, "roadMark", sOffset="0.00", type="broken", material="standard", color="white", width="0.125", laneChange="none")
+                ET.SubElement(lane, "roadMark", sOffset="0.0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
                 continue
 
             parent = right if nvdb_lane.same_direction else left
+            lane_width = "1.5" if nvdb_lane.lane_type == LaneType.BICYCLE else "3.5"
             lane = ET.SubElement(parent, "lane", id=str(nvdb_lane.id), type=nvdb_lane.get_xodr_lane_type(), level="false")
             ET.SubElement(lane, "link")
-            ET.SubElement(lane, "width", sOffset="0.0", a="4.00e+00", b="0.0", c="0.00", d="0.00")
-            ET.SubElement(lane, "roadMark", sOffset="0.00", type="solid", material="standard", color="white", laneChange="none")
+            ET.SubElement(lane, "width", sOffset="0.0", a=lane_width, b="0.0", c="0.0", d="0.0")
+            ET.SubElement(lane, "roadMark", sOffset="0.0", type="solid", material="standard", color="white", laneChange="none")
 
     root.append(road)
     return root
