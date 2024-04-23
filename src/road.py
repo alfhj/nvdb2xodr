@@ -15,9 +15,10 @@ class LaneType(Enum):
 
 
 class Lane:
-    def __init__(self, lane_type: LaneType, same_direction: bool):
-        self.lane_type = lane_type
+    def __init__(self, lane_type: LaneType, same_direction: bool, width: float):
+        self.type = lane_type
         self.same_direction = same_direction
+        self.width = width
         self.id = None
 
     def get_xodr_lane_type(self):
@@ -26,7 +27,7 @@ class Lane:
             LaneType.BICYCLE: "biking",
             LaneType.LEFT_TURN: "exit",
             LaneType.RIGHT_TURN: "exit"
-        }.get(self.lane_type, "driving")
+        }.get(self.type, "driving")
 
 
 class Road:
@@ -43,5 +44,5 @@ class Road:
             self.opposite_lanes.append(lane)
 
     def get_lanes(self) -> list[Lane]:
-        center_lane = Lane(LaneType.INVALID, True)
+        center_lane = Lane(LaneType.INVALID, True, 0)
         return sorted(self.opposite_lanes, key=lambda l: l.id) + [center_lane] + sorted(self.same_lanes, key=lambda l: l.id)

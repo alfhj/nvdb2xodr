@@ -151,18 +151,18 @@ def fillNormalRoad(root: Element, sequence):
         center = ET.SubElement(laneSection, "center")
         right = ET.SubElement(laneSection, "right")
         lanes_list = chain.get("feltoversikt", [])
-        nvdb_road = get_road(lanes_list)
+        nvdb_road = get_road(lanes_list, chain.get("vegbredde"))
         for nvdb_lane in nvdb_road.get_lanes():
-            if nvdb_lane.lane_type == LaneType.INVALID:
+            if nvdb_lane.type == LaneType.INVALID:
                 lane = ET.SubElement(center, "lane", id="0", type="none", level="false")
                 ET.SubElement(lane, "roadMark", sOffset="0.0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
                 continue
 
             parent = right if nvdb_lane.same_direction else left
-            lane_width = "1.5" if nvdb_lane.lane_type == LaneType.BICYCLE else "3.5"
+
             lane = ET.SubElement(parent, "lane", id=str(nvdb_lane.id), type=nvdb_lane.get_xodr_lane_type(), level="false")
             ET.SubElement(lane, "link")
-            ET.SubElement(lane, "width", sOffset="0.0", a=lane_width, b="0.0", c="0.0", d="0.0")
+            ET.SubElement(lane, "width", sOffset="0.0", a=str(nvdb_lane.width), b="0.0", c="0.0", d="0.0")
             ET.SubElement(lane, "roadMark", sOffset="0.0", type="solid", material="standard", color="white", laneChange="none")
 
     root.append(road)
@@ -170,7 +170,7 @@ def fillNormalRoad(root: Element, sequence):
 
 
 if __name__ == "__main__":
-    roads = load_json(get_file_path("veglenkesekvens2.json"))
+    roads = load_json(get_file_path("veglenkesekvens2a.json"))
 
     merge_linked_locations(roads)
 

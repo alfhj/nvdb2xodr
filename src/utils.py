@@ -55,9 +55,13 @@ def distance(x1, y1, x2, y2):
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
 
-def get_road(input: list[str]) -> Road:
+def get_road(input: list[str], total_width: float = None) -> Road:
     road = Road()
+    num_lanes = len(input)
+    biking_width = 1.25
+    driving_width = 3.5
 
+    lanes = []
     for nvdb_lane in input:
         same_direction = int(nvdb_lane[0]) % 2 == 1
         lane_type = LaneType.NORMAL
@@ -65,7 +69,18 @@ def get_road(input: list[str]) -> Road:
             if special_type.value in nvdb_lane:
                 lane_type = special_type
                 break
-        lane = Lane(lane_type, same_direction)
+        lane_width = biking_width if lane_type == LaneType.BICYCLE else driving_width
+        lane = Lane(lane_type, same_direction, lane_width)
+        lanes.append(lane)
+
+    if total_width: # scale to match total_width if set
+        num_bike = sum(1 for lane in lanes if lane.type == LaneType.BICYCLE)
+        num_driving = len(lanes) - num_bike
+        default_width = num_bike * biking_width + num_driving * driving_width
+        for lane in lanes:
+            lane.width *= total_width / default_width
+
+    for lane in lanes:
         road.add_lane(lane)
 
     return road
