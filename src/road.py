@@ -30,10 +30,11 @@ class Lane:
         }.get(self.type, "driving")
 
 
-class Road:
+class RoadSegment:
     def __init__(self):
-        self.same_lanes = [] # ordered from center to edge
-        self.opposite_lanes = [] # ordered from center to edge
+        self.reference_line: list[tuple[float]] = []
+        self.same_lanes: list[Lane] = []  # ordered from center to edge
+        self.opposite_lanes: list[Lane] = []  # ordered from center to edg
 
     def add_lane(self, lane: Lane):
         if lane.same_direction:

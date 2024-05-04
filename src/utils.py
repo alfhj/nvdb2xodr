@@ -5,7 +5,7 @@ import json
 
 import pyproj
 
-from .road import Road, Lane, LaneType
+from .road import RoadSegment, Lane, LaneType
 from .constants import CENTER_COORDS, DATA_PATH
 
 
@@ -29,7 +29,7 @@ def getPositiveHeading(hdg):
     return hdg % (np.pi * 2.0)
 
 
-def giveHeading(x1, y1, x2, y2):
+def get_heading(x1, y1, x2, y2):
     assert not (x1 == x2 and y1 == y2), "Can't give heading without a direction"
     x = [x1, x2]
     y = [y1, y2]
@@ -52,13 +52,12 @@ def giveHeading(x1, y1, x2, y2):
     return getPositiveHeading(phi)
 
 
-def distance(x1, y1, x2, y2):
+def get_distance(x1, y1, x2, y2):
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
 
-def get_road(input: list[str], total_width: float = None) -> Road:
-    road = Road()
-    num_lanes = len(input)
+def get_road_segment(input: list[str], total_width: float = None) -> RoadSegment:
+    road = RoadSegment()
     biking_width = 1.25
     driving_width = 3.5
 
@@ -98,7 +97,10 @@ def get_relative_coordinates(x, y):
 
 def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: int = 20):
     """Calculates and returns a parametric cubic polynomial of a curve between
-    the points (0, 0) and (end[0], end[1]).
+    the points (0, 0) and (end[0], end[1]). The curve in the uv plane is given by:
+    c(p) = (u(p), v(p)),
+    u(p) = aU + bU*p + cU*p² + dU*p³,
+    v(p) = aV + bV*p + cV*p² + dV*p³
     See https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/latest/specification/09_geometries/09_06_param_poly3.html
 
     Args:
@@ -131,3 +133,65 @@ def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: in
         length += sqrt((u(p2) - u(p1)) ** 2 + (v(p2) - v(p1)) ** 2)
 
     return (aU, aV, bU, bV, cU, cV, dU, dV), length
+
+
+def shorten_coordinate_list(points: list[tuple[float]], length: float, from_start: bool, inclusive: bool = True):
+    """Shorten a line consisting of a list of coordinates by a set length.
+    The new length will be old_length - length.
+    The coordinates are assumed to be in the same unit as length.
+    If length is longer than the total length of the input line, the returned list will consist of the last two points.
+
+    Args:
+        points (list[tuple[float]]): list of tuples of coordinates. The first two items in the tuples are used as x and y coordinates
+        length (float): length that should be chopped of the line
+        from_start (bool): whether to shorten the line from the start or the end
+        inclusive (bool, optional): Whether to overshoot the length or not. If inclusive=True and the removed segment is not exactly length units long, the removed length will be longer than lenght, else it will be shorter. Defaults to True.
+    Returns:
+        points (list[tuple[float]]): a shortened copy of the coordinates list 
+    """
+    if len(points) < 3:
+        return points
+
+    input = points if from_start else list(reversed(points))
+    output = []
+
+    compound_length = 0
+    for point1, point2 in zip(input[:-1], input[1:]):
+        x1 = point1[0]
+        y1 = point1[1]
+        x2 = point2[0]
+        y2 = point2[1]
+
+        if compound_length > length:
+            output.append(point1)
+        else:
+            intermediate_length = get_distance(x1, y1, x2, y2)
+            compound_length += intermediate_length
+
+    if len(output) == 0:
+        output = [point1, point2]
+    else:
+        output.append(point2)  # add last point
+
+    if not from_start:
+        output.reverse()
+
+    return output
+
+
+def normalize_s_offsets(offsets, end_offset):
+    """Normalize a list of offsets so that offsets[0] = 0 and end_offset would
+    be 1 if it was a part of offsets
+
+    Args:
+        offsets (list[float]): list of s_offsets (range 0.0-1.1)
+        end_offset (float): final s_offset. Will not be included in output
+
+    >>> normalize_s_offsets([0.1, 0.2], 0.5)
+    [0.0, 0.25]
+
+    """
+    if len(offsets) < 2:
+        return [0.0]
+
+    return [(offset - offsets[0]) / (end_offset - offsets[0]) for offset in offsets]
