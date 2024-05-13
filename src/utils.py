@@ -1,5 +1,6 @@
 from math import cos, sin, sqrt
 from pathlib import Path
+from shapely.geometry import Point, LineString
 import numpy as np
 import json
 
@@ -135,17 +136,17 @@ def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: in
     return (aU, aV, bU, bV, cU, cV, dU, dV), length
 
 
-def shorten_coordinate_list(points: list[tuple[float]], length: float, from_start: bool, inclusive: bool = True):
+def shorten_coordinate_list(points: list[tuple[float]], cut_length: float, from_start: bool, inclusive: bool = True):
     """Shorten a line consisting of a list of coordinates by a set length.
-    The new length will be old_length - length.
+    The new length will be old_length - cut_length.
     The coordinates are assumed to be in the same unit as length.
     If length is longer than the total length of the input line, the returned list will consist of the last two points.
 
     Args:
         points (list[tuple[float]]): list of tuples of coordinates. The first two items in the tuples are used as x and y coordinates
-        length (float): length that should be chopped of the line
+        cut_length (float): length that should be chopped of the line
         from_start (bool): whether to shorten the line from the start or the end
-        inclusive (bool, optional): Whether to overshoot the length or not. If inclusive=True and the removed segment is not exactly length units long, the removed length will be longer than lenght, else it will be shorter. Defaults to True.
+        inclusive (bool, optional): Whether to overshoot the length or not. If inclusive=True and the removed segment is not exactly cut_length units long, the removed length will be longer than cut_length, else it will be shorter. Defaults to True.
     Returns:
         points (list[tuple[float]]): a shortened copy of the coordinates list 
     """
@@ -162,7 +163,7 @@ def shorten_coordinate_list(points: list[tuple[float]], length: float, from_star
         x2 = point2[0]
         y2 = point2[1]
 
-        if compound_length > length:
+        if compound_length > cut_length:
             output.append(point1)
         else:
             intermediate_length = get_distance(x1, y1, x2, y2)
@@ -177,6 +178,46 @@ def shorten_coordinate_list(points: list[tuple[float]], length: float, from_star
         output.reverse()
 
     return output
+
+
+def shorten_linestring(line: LineString, cut_length: float, from_start: bool, min_length: float = 1.0):
+    """Shorten a linestring by a set length.
+    The new length will be old_length - cut_length.
+    The coordinates are assumed to be in the same unit as length.
+    If the new length is shorter than min_length, the length will be capped to min_length
+
+    Args:
+        line (LineString): list of tuples of coordinates. The first two items in the tuples are used as x and y coordinates
+        cut_length (float): length that should be chopped of the line
+        from_start (bool): whether to shorten the line from the start or the end
+        min_length (float): Minimum length of the shortened line. If the original length is less than min_length, the original line will be returned unchanged
+    Returns:
+        points (list[tuple[float]]): a shortened copy of the coordinates list 
+    """
+
+    length = line.length
+    if length < min_length:
+        return line
+    if length - cut_length < min_length:
+        cut_length = length - min_length
+    if not from_start:
+        line = line.reverse()
+
+    coords = list(line.coords)
+    for i, p in enumerate(coords):
+        distance = line.project(Point(p))
+        if distance == cut_length:
+            out_line = LineString(line.coords[i:])
+            break
+        if distance > cut_length:
+            cut_point = line.interpolate(cut_length)
+            out_line = LineString([(cut_point.x, cut_point.y, cut_point.z)] + coords[i:])
+            break
+
+    if not from_start:
+        out_line = out_line.reverse()
+
+    return out_line
 
 
 def normalize_s_offsets(offsets, end_offset):

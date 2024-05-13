@@ -2,7 +2,10 @@ import re
 import lxml.etree as ET
 from lxml.etree import Element, ElementTree
 from datetime import datetime
-from src.utils import get_relative_coordinates, get_heading, get_distance, load_json, get_road_segment, get_file_path, normalize_s_offsets, shorten_coordinate_list
+from shapely import from_wkt, get_num_points, line_merge
+from shapely.ops import linemerge, unary_union
+from shapely.geometry import Point, LineString, MultiLineString
+from src.utils import *
 from src.road import LaneType, RoadSegment
 from src.constants import CENTER_COORDS, JUNCTION_MARGIN, road_types, detail_levels
 
@@ -100,7 +103,7 @@ def startBasicXODRFile() -> Element:
     return root
 
 
-def generate_single_road(points: list, nvdb_roads: list[RoadSegment], s_offsets: list[float], id_suffix: int, minmax_xy: list[float]):
+def generate_single_road(reference_line: LineString, nvdb_roads: list[RoadSegment], s_offsets: list[float], id_suffix: int, minmax_xy: list[float]):
     # start road
     road = ET.Element("road", name=sequence["adresse"], id=f"{sequence['veglenkesekvensid']}_{id_suffix}", rule="RHT", junction="-1")
     link = ET.SubElement(road, "link")
@@ -114,6 +117,7 @@ def generate_single_road(points: list, nvdb_roads: list[RoadSegment], s_offsets:
     elevationProfile = ET.SubElement(road, "elevationProfile")
 
     lengths = []
+    points = list(reference_line.coords)
     for i in range(len(points)-1):
         x1, y1, z1 = points[i]
         x2, y2, z2 = points[i+1]
@@ -175,16 +179,17 @@ def generate_road_sequence(root: Element, sequence: dict, minmax_xy: list[float]
     portals_to_nodes = {portal["id"]: portal["tilkobling"]["nodeid"] for portal in sequence["porter"]}
 
     id_suffix = 1
-    points = []
     nvdb_roads = []
+    lines = []
     s_offsets = []
     for i, chain in enumerate(chains):
-        points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
-        points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
-        if len(points_list) < 2:
+        line = from_wkt(chain["geometri"]["wkt"])
+
+        if get_num_points(line) < 2:
             continue
 
-        points.extend(points_list)
+        lines.append(line)
+
         lanes_list = chain.get("feltoversikt", [])
         nvdb_road = get_road_segment(lanes_list, chain.get("vegbredde"))
         nvdb_roads.append(nvdb_road)
@@ -193,21 +198,26 @@ def generate_road_sequence(root: Element, sequence: dict, minmax_xy: list[float]
         start_node_id = portals_to_nodes[chain["startport"]]
         end_node_id = portals_to_nodes[chain["sluttport"]]
 
-        if len(nodes[start_node_id]) > 2:  # starts from junction
-            points = shorten_coordinate_list(points, length=JUNCTION_MARGIN, from_start=True)
-
-        if len(nodes[end_node_id]) > 2:  # ends in junction
-            points = shorten_coordinate_list(points, length=JUNCTION_MARGIN, from_start=False)
-        elif i != len(chains) - 1:  # normal road connection and not at end
-            points.pop()  # remove last point to avoid duplicate
+        #if len(nodes[start_node_id]) > 2:  # starts from junction
+        #    line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=True)
+        #if len(nodes[end_node_id]) > 2:  # ends in junction
+        #    line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=False)
+        if len(nodes[end_node_id]) <= 2 and i != len(chains) - 1:  # normal road connection and not at end
+            #points.pop()  # remove last point to avoid duplicate
             continue  # merge current with next road segment
 
         # make road
+        points = list(lines[0].coords)
+        for l in lines[1:]:
+            points.extend(list(l.coords)[1:])
+        line = LineString(points)
+        line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=True)
+        line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=False)
         offsets = normalize_s_offsets(s_offsets, chain["sluttposisjon"])
-        road = generate_single_road(points, nvdb_roads, offsets, id_suffix, minmax_xy)
+        road = generate_single_road(line, nvdb_roads, offsets, id_suffix, minmax_xy)
         root.append(road)
         id_suffix += 1
-        points = []
+        line = None
         nvdb_roads = []
 
     return root
@@ -226,7 +236,7 @@ if __name__ == "__main__":
     root = startBasicXODRFile()
     minmax_xy = [1e9, 1e9, -1e9, -1e9]  # min_x, min_y, max_x, max_y
 
-    # road sequence < road chain < road segment
+    # road sequence > road chain > road segment
     for sequence in roads:
         generate_road_sequence(root, sequence, minmax_xy, nodes)
 
