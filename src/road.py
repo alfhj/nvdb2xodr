@@ -47,3 +47,40 @@ class RoadSegment:
     def get_lanes(self) -> list[Lane]:
         center_lane = Lane(LaneType.INVALID, True, 0)
         return sorted(self.opposite_lanes, key=lambda l: l.id) + [center_lane] + sorted(self.same_lanes, key=lambda l: l.id)
+
+
+class Road:
+    def __init__(self, id: str):
+        self.id = id
+        self.road_segments: list[RoadSegment] = []
+        self.start_point = None
+        self.end_point = None
+
+    def add_road_segment(self):
+        pass
+
+
+class RoadNetwork:
+    def __init__(self):
+        self.roads: list[Road] = []
+        self.minmax_xy = [1e9, 1e9, -1e9, -1e9]  # min_x, min_y, max_x, max_y
+
+    def add_road(self, road: Road):
+        for segment in road.road_segments:
+            for x, y in segment.reference_line:
+                if x < self.minmax_xy[0]:
+                    self.minmax_xy[0] = x
+                if y < self.minmax_xy[1]:
+                    self.minmax_xy[1] = y
+                if x > self.minmax_xy[2]:
+                    self.minmax_xy[2] = x
+                if y > self.minmax_xy[3]:
+                    self.minmax_xy[3] = y
+
+        self.roads.append(road)
+
+    def get_road(self, road_id: int):
+        pass
+
+    def get_junction_roads(self, node_id: int):
+        pass

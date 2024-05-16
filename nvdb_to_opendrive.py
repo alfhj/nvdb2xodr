@@ -6,7 +6,7 @@ from shapely import from_wkt, get_num_points, line_merge
 from shapely.ops import linemerge, unary_union
 from shapely.geometry import Point, LineString, MultiLineString
 from src.utils import *
-from src.road import LaneType, RoadSegment
+from src.road import LaneType, RoadNetwork, RoadSegment
 from src.constants import CENTER_COORDS, JUNCTION_MARGIN, road_types, detail_levels
 
 
@@ -66,13 +66,13 @@ def merge_linked_locations(roads: list):
                 chain["sluttdato"] = "MOVED"  # mark original chain as outdated
 
 
-def get_nodes(roads: list):
+def get_nodes(roads: list) -> dict[int, list[int]]:
     """Get nodes from NVDB roads
 
     Args:
         roads (list): NVDB veglenker
     Returns:
-        nodes (dict): Dictionary that maps node IDs to a list of road sequence IDs that are connected to that node
+        nodes (dict[int, list[int]]): Dictionary that maps node IDs to a list of road sequence IDs that are connected to that node
     """
 
     nodes = {}
@@ -134,15 +134,6 @@ def generate_single_road(reference_line: LineString, nvdb_roads: list[RoadSegmen
         lengths.append(length)
         slope = (z2 - z1) / length
 
-        if x1 < minmax_xy[0]:
-            minmax_xy[0] = x1
-        if y1 < minmax_xy[1]:
-            minmax_xy[1] = y1
-        if x1 > minmax_xy[2]:
-            minmax_xy[2] = x1
-        if y1 > minmax_xy[3]:
-            minmax_xy[3] = y1
-
         geometry = ET.Element("geometry", s=str(sum(lengths[:-1])), x=str(x1), y=str(y1), hdg=str(heading), length=str(length))
         ET.SubElement(geometry, "line")
         ET.SubElement(elevationProfile, "elevation", s=str(sum(lengths[:-1])), a=str(z1), b=str(slope), c="0.0", d="0.0")
@@ -174,23 +165,44 @@ def generate_single_road(reference_line: LineString, nvdb_roads: list[RoadSegmen
     return road
 
 
-def generate_road_sequence(root: Element, sequence: dict, minmax_xy: list[float], nodes: dict):
+def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[int]]):
     chains = filter_road_sequence(sequence)
     portals_to_nodes = {portal["id"]: portal["tilkobling"]["nodeid"] for portal in sequence["porter"]}
 
     id_suffix = 1
     nvdb_roads = []
     lines = []
+    points = []
     s_offsets = []
     for i, chain in enumerate(chains):
-        line = from_wkt(chain["geometri"]["wkt"])
+        #line = from_wkt(chain["geometri"]["wkt"])
+        #if get_num_points(line) < 2:
+        #    continue
 
-        if get_num_points(line) < 2:
+        #lines.append(line)
+
+        if "feltoversikt" in chain:
+            lanes_list = chain["feltoversikt"]
+        else:
             continue
 
-        lines.append(line)
+        points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
+        points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
+        if len(points_list) < 2:
+            continue
 
-        lanes_list = chain.get("feltoversikt", [])
+        points.extend(points_list)
+
+        #if "feltoversikt" in chain:
+        #    lanes_list = chain["feltoversikt"]
+        #else:  # konnektering, use previous/next lanes
+        #    if i > 0 and "feltoversikt" in chains[i-1]:
+        #        lanes_list = chains[i-1]["feltoversikt"]
+        #    elif i < len(chains) - 1 and "feltoversikt" in chains[i+1]:
+        #        lanes_list = chains[i+1]["feltoversikt"]
+        #    else:
+        #        lanes_list = []
+
         nvdb_road = get_road_segment(lanes_list, chain.get("vegbredde"))
         nvdb_roads.append(nvdb_road)
         s_offsets.append(chain["startposisjon"])
@@ -203,24 +215,40 @@ def generate_road_sequence(root: Element, sequence: dict, minmax_xy: list[float]
         #if len(nodes[end_node_id]) > 2:  # ends in junction
         #    line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=False)
         if len(nodes[end_node_id]) <= 2 and i != len(chains) - 1:  # normal road connection and not at end
-            #points.pop()  # remove last point to avoid duplicate
+            points.pop()  # remove last point to avoid duplicate
             continue  # merge current with next road segment
 
         # make road
-        points = list(lines[0].coords)
-        for l in lines[1:]:
-            points.extend(list(l.coords)[1:])
+        #points = list(lines[0].coords)
+        #for l in lines[1:]:
+        #    points.extend(list(l.coords)[1:])
         line = LineString(points)
         line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=True)
         line = shorten_linestring(line, cut_length=JUNCTION_MARGIN, from_start=False)
         offsets = normalize_s_offsets(s_offsets, chain["sluttposisjon"])
-        road = generate_single_road(line, nvdb_roads, offsets, id_suffix, minmax_xy)
+        road = generate_single_road(line, nvdb_roads, offsets, id_suffix)
         root.append(road)
         id_suffix += 1
         line = None
+        points = []
         nvdb_roads = []
+        s_offsets = []
 
     return root
+
+
+def generate_junction(root: Element, roads: dict, node: tuple[int, list[int]]):
+    """Generates OpenDrive junctions. The junctions consist of several roads connecting each lane into the junction.
+    The number of generated roads in each junction will be ,
+
+    Args:
+        root (Element): _description_
+        roads (dict): _description_
+        node (tuple[int, list[int]]): _description_
+    """
+    node_id, connected_roads = node
+    if len(connected_roads) < 3:
+        return
 
 
 if __name__ == "__main__":
@@ -234,11 +262,14 @@ if __name__ == "__main__":
     nodes = get_nodes(roads)
 
     root = startBasicXODRFile()
-    minmax_xy = [1e9, 1e9, -1e9, -1e9]  # min_x, min_y, max_x, max_y
 
+    road_network = RoadNetwork()
     # road sequence > road chain > road segment
     for sequence in roads:
-        generate_road_sequence(root, sequence, minmax_xy, nodes)
+        generate_road_sequence(root, sequence, nodes)
+
+    for node in nodes.items():
+        generate_junction(root, roads, node)
 
     # set min/max coordinates
     header = root.find("header")
