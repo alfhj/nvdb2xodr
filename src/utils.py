@@ -6,8 +6,11 @@ import json
 
 import pyproj
 
-from .road import RoadSegment, Lane, LaneType
 from .constants import CENTER_COORDS, DATA_PATH
+
+#transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:5973")
+transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:25833")
+center = transform.transform(CENTER_COORDS[0], CENTER_COORDS[1])
 
 
 def dump_json(obj, path, pretty=True):
@@ -53,43 +56,18 @@ def get_heading(x1, y1, x2, y2):
     return getPositiveHeading(phi)
 
 
-def get_distance(x1, y1, x2, y2):
+def get_length(x1, y1, x2, y2):
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
 
-def get_road_segment(input: list[str], total_width: float = None) -> RoadSegment:
-    road = RoadSegment()
-    biking_width = 1.25
-    driving_width = 3.5
+def get_total_length(points: list[tuple[float]]):
+    total = 0
+    for i in range(len(points) - 1):
+        x1, y1, _ = points[i]
+        x2, y2, _ = points[i+1]
+        total += get_length(x1, y1, x2, y2)
 
-    lanes = []
-    for nvdb_lane in input:
-        same_direction = int(nvdb_lane[0]) % 2 == 1
-        lane_type = LaneType.NORMAL
-        for special_type in LaneType.__members__.values():
-            if special_type.value in nvdb_lane:
-                lane_type = special_type
-                break
-        lane_width = biking_width if lane_type == LaneType.BICYCLE else driving_width
-        lane = Lane(lane_type, same_direction, lane_width)
-        lanes.append(lane)
-
-    if total_width: # scale to match total_width if set
-        num_bike = sum(1 for lane in lanes if lane.type == LaneType.BICYCLE)
-        num_driving = len(lanes) - num_bike
-        default_width = num_bike * biking_width + num_driving * driving_width
-        for lane in lanes:
-            lane.width *= total_width / default_width
-
-    for lane in lanes:
-        road.add_lane(lane)
-
-    return road
-
-
-#transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:5973")
-transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:25833")
-center = transform.transform(CENTER_COORDS[0], CENTER_COORDS[1])
+    return total
 
 
 def get_relative_coordinates(x, y):
@@ -136,48 +114,49 @@ def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: in
     return (aU, aV, bU, bV, cU, cV, dU, dV), length
 
 
-def shorten_coordinate_list(points: list[tuple[float]], cut_length: float, from_start: bool, inclusive: bool = True):
+def shorten_coordinate_list(points: list[tuple[float]], cut_length: float, from_start: bool, min_length: float = 1.0):
     """Shorten a line consisting of a list of coordinates by a set length.
     The new length will be old_length - cut_length.
     The coordinates are assumed to be in the same unit as length.
-    If length is longer than the total length of the input line, the returned list will consist of the last two points.
 
     Args:
         points (list[tuple[float]]): list of tuples of coordinates. The first two items in the tuples are used as x and y coordinates
         cut_length (float): length that should be chopped of the line
         from_start (bool): whether to shorten the line from the start or the end
-        inclusive (bool, optional): Whether to overshoot the length or not. If inclusive=True and the removed segment is not exactly cut_length units long, the removed length will be longer than cut_length, else it will be shorter. Defaults to True.
     Returns:
         points (list[tuple[float]]): a shortened copy of the coordinates list 
     """
-    if len(points) < 3:
-        return points
+    def interp(a, b, t):
+        return a * (1 - t) + b * t
 
-    input = points if from_start else list(reversed(points))
+    length = get_total_length(points)
+
+    if length < min_length or cut_length <= 0:
+        return points
+    if length - cut_length < min_length:
+        cut_length = length - min_length
+    if not from_start:
+        points = list(reversed(points))
+
     output = []
 
-    compound_length = 0
-    for point1, point2 in zip(input[:-1], input[1:]):
-        x1 = point1[0]
-        y1 = point1[1]
-        x2 = point2[0]
-        y2 = point2[1]
+    total_length = 0
+    for i in range(len(points) - 1):
+        x1, y1, z1 = points[i]
+        x2, y2, z2 = points[i+1]
+        length = get_length(x1, y1, x2, y2)
+        total_length += length
 
-        if compound_length > cut_length:
-            output.append(point1)
-        else:
-            intermediate_length = get_distance(x1, y1, x2, y2)
-            compound_length += intermediate_length
-
-    if len(output) == 0:
-        output = [point1, point2]
-    else:
-        output.append(point2)  # add last point
+        if total_length == cut_length:
+            output = points[i:]
+        if total_length > cut_length:
+            t = (cut_length - total_length) / length
+            output = [(interp(x1, x2, t), interp(y1, y2, t), interp(z1, z2, t))] + points[i:]
 
     if not from_start:
         output.reverse()
 
-    return output
+    return output, cut_length
 
 
 def shorten_linestring(line: LineString, cut_length: float, from_start: bool, min_length: float = 1.0):
@@ -196,7 +175,7 @@ def shorten_linestring(line: LineString, cut_length: float, from_start: bool, mi
     """
 
     length = line.length
-    if length < min_length:
+    if length < min_length or cut_length <= 0:
         return line
     if length - cut_length < min_length:
         cut_length = length - min_length
@@ -205,11 +184,11 @@ def shorten_linestring(line: LineString, cut_length: float, from_start: bool, mi
 
     coords = list(line.coords)
     for i, p in enumerate(coords):
-        distance = line.project(Point(p))
-        if distance == cut_length:
+        total_length = line.project(Point(p))
+        if total_length == cut_length:
             out_line = LineString(line.coords[i:])
             break
-        if distance > cut_length:
+        if total_length > cut_length:
             cut_point = line.interpolate(cut_length)
             out_line = LineString([(cut_point.x, cut_point.y, cut_point.z)] + coords[i:])
             break
