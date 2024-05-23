@@ -210,6 +210,8 @@ def shorten_point_list(points: list[ReferenceLinePoint], cut_length: float, from
             break
 
     if not from_start:
+        output[1].length = output[0].length
+        output[0].length = 0
         output.reverse()
 
     return output, cut_length
