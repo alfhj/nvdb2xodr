@@ -1,4 +1,4 @@
-from math import cos, sin, sqrt
+from math import atan2, cos, pi, sin, sqrt, tau
 from pathlib import Path
 from shapely.geometry import Point, LineString
 import numpy as np
@@ -27,33 +27,12 @@ def get_file_path(filename):
     return Path(DATA_PATH).joinpath(filename)
 
 
-def getPositiveHeading(hdg):
-    while hdg < 0.0:
-        hdg += 2.0 * np.pi
-    return hdg % (np.pi * 2.0)
+def rotate(angle, phi):
+    return (angle + phi) % tau
 
 
 def get_heading(x1, y1, x2, y2):
-    assert not (x1 == x2 and y1 == y2), "Can't give heading without a direction"
-    x = [x1, x2]
-    y = [y1, y2]
-    x_arr = np.array(x) - x[0]
-    y_arr = np.array(y) - y[0]
-
-    if x_arr[1] > 0:
-        phi = np.arctan(y_arr[1] / x_arr[1])
-    elif x_arr[1] == 0:
-        if y_arr[1] > 0:
-            phi = np.pi / 2
-        else:
-            phi = -np.pi / 2
-    else:
-        if y_arr[1] >= 0:
-            phi = np.arctan(y_arr[1] / x_arr[1]) + np.pi
-        else:
-            phi = np.arctan(y_arr[1] / x_arr[1]) - np.pi
-
-    return getPositiveHeading(phi)
+    return atan2(y2 - y1, x2 - x1) % tau
 
 
 def get_length(x1, y1, x2, y2):
@@ -72,6 +51,21 @@ def get_total_length(points: list[tuple[float]]):
 
 def get_relative_coordinates(x, y):
     return (x - center[0], y - center[1])
+
+
+def get_uv_coordinates(x1, y1, h1, x2, y2, h2):
+    """Get uv coordinates of point (x2, y2) relative to (x1, y1) and its heading h1
+    The U-axis will point in the same direction as h1, and the V-axis will point perpendicular to it
+    Return u, v, and h, where h is (x2, y2)'s heading in the new uv space
+    """
+    dist = get_length(x1, y1, x2, y2)
+    phi = get_heading(x1, y1, x2, y2)
+    phi_uv = phi - h1
+    u = dist * cos(phi_uv)
+    v = dist * sin(phi_uv)
+    h = (h1 - h2) % tau
+
+    return u, v, h
 
 
 def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: int = 20):
@@ -95,16 +89,16 @@ def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: in
         length: approximate length of the curve
     """
     sin_phi, cos_phi = sin(phi), cos(phi)
+    scaling = (abs(end[0]) + abs(end[1])) * 1.0
     aU = aV = bV = 0
     bU = end[0]
-    cU = -(cos_phi * (end[0] - end[1]) - end[0])
-    dU = (cos_phi * (end[0] - end[1]) - end[0])
-    cV = -(sin_phi * (end[0] - end[1]) - 3 * end[1])
-    dV = (sin_phi * (end[0] - end[1]) - 2 * end[1])
+    cU = -(cos_phi * scaling - end[0])
+    dU = (cos_phi * scaling - end[0])
+    cV = -(sin_phi * scaling - 3 * end[1])
+    dV = (sin_phi * scaling - 2 * end[1])
 
     def u(p): return aU + bU * p + cU * p ** 2 + dU * p ** 3
     def v(p): return aV + bV * p + cV * p ** 2 + dV * p ** 3
-    # u2 - u1 = 0 + bU * (p2 - p1) + cU * (p2^2 - p1^2) + dU * (p2^3 - p1^3)
 
     ps = [i / length_subdivisions for i in range(length_subdivisions + 1)]
     length = 0
@@ -215,3 +209,18 @@ def normalize_s_offsets(offsets, end_offset):
         return [0.0]
 
     return [(offset - offsets[0]) / (end_offset - offsets[0]) for offset in offsets]
+
+
+def get_perpendicular_point(x, y, h, d):
+    """Get a point that is on the line perpendicular to heading h on point (x, y)
+    that is a distance d from (x, y). Negative d gives a point to the right of
+    (x, y), and positive d gives a point to the left of (x, y)
+    """
+    if d == 0:
+        return (x, y)
+
+    phi = h + (pi / 2) * (1 if d > 0 else -1)
+    x1 = x + d * cos(phi)
+    y1 = y + d * sin(phi)
+
+    return (x1, y1)

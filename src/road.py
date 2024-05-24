@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
+from .constants import BIKING_WIDTH, DRIVING_WIDTH
 from .utils import *
 
 
@@ -17,12 +18,12 @@ class LaneType(Enum):
     REVERSIBLE = "R" # Reversibelt
 
 
+@dataclass
 class Lane:
-    def __init__(self, lane_type: LaneType, same_direction: bool, width: float):
-        self.type = lane_type
-        self.same_direction = same_direction
-        self.width = width
-        self.id = None
+    type: LaneType
+    same_direction: bool
+    width: float
+    id: int = None
 
     def get_xodr_lane_type(self):
         return {
@@ -46,14 +47,20 @@ class ReferenceLinePoint:
     def coords(self) -> tuple[float]:
         return (self.x, self.y, self.z)
 
+    def copy(self):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        result.__dict__.update(self.__dict__)
+        return result
+
 
 class RoadSegment:
     def __init__(self, points: list[tuple[float]]):
-        self.reference_line = points
+        self.points = points
         self.length = get_total_length(points)
         self.nvdb_lanes: list[str] = []
-        self.same_lanes: list[Lane] = []  # ordered from center to edge
-        self.opposite_lanes: list[Lane] = []  # ordered from center to edg
+        self.same_lanes: list[Lane] = []  # ordered from center to right side with id < 0
+        self.opposite_lanes: list[Lane] = []  # ordered from center to left side with id > 1
 
     def add_lane(self, lane: Lane):
         if lane.same_direction:
@@ -65,8 +72,6 @@ class RoadSegment:
 
     def add_nvdb_lanes(self, input: list[str], total_width: float = None):
         self.nvdb_lanes = input
-        biking_width = 1.5
-        driving_width = 3.5
 
         lanes = []
         for nvdb_lane in input:
@@ -76,14 +81,14 @@ class RoadSegment:
                 if special_type.value in nvdb_lane:
                     lane_type = special_type
                     break
-            lane_width = biking_width if lane_type == LaneType.BICYCLE else driving_width
+            lane_width = BIKING_WIDTH if lane_type == LaneType.BICYCLE else DRIVING_WIDTH
             lane = Lane(lane_type, same_direction, lane_width)
             lanes.append(lane)
 
         if total_width: # scale to match total_width if set
             num_bike = sum(1 for lane in lanes if lane.type == LaneType.BICYCLE)
             num_driving = len(lanes) - num_bike
-            default_width = num_bike * biking_width + num_driving * driving_width
+            default_width = num_bike * BIKING_WIDTH + num_driving * DRIVING_WIDTH
             for lane in lanes:
                 lane.width *= total_width / default_width
 
@@ -95,14 +100,21 @@ class RoadSegment:
         return sorted(self.opposite_lanes, key=lambda l: l.id) + [center_lane] + sorted(self.same_lanes, key=lambda l: l.id)
 
 
-class Road:
-    def __init__(self, road_segments: list[RoadSegment], shorten: float = 0):
-        self.reference_line: list[ReferenceLinePoint] = []
-        self.lanes: list[tuple[float, Lane]] = []
+@dataclass
+class LaneSegment:
+    segment: RoadSegment
+    s_offset: float
 
-        points = road_segments[0].reference_line
+
+class Road:
+    def __init__(self, road_segments: list[RoadSegment], road_id: str, shorten: float = 0):
+        self.id = road_id
+        self.reference_line: list[ReferenceLinePoint] = []
+        self.lanes: list[LaneSegment] = []
+
+        points = road_segments[0].points
         for segment in road_segments[1:]:
-            points.extend(segment.reference_line[1:])
+            points.extend(segment.points[1:])
 
         for i in range(len(points) - 1):
             x1, y1, z1 = points[i]
@@ -134,17 +146,36 @@ class Road:
                 if s_offset == previous_offset:
                     self.lanes.pop()
 
-                self.lanes.append((s_offset, segment))
+                self.lanes.append(LaneSegment(segment, s_offset))
                 previous_offset = s_offset
                 previous_lanes = segment.nvdb_lanes
 
             length += segment.length
 
 
+class JunctionRoad:
+    def __init__(self, start_point: ReferenceLinePoint, end_point: ReferenceLinePoint, junction_id: str,  width: float = DRIVING_WIDTH):
+        u, v, uv_heading = get_uv_coordinates(start_point.x, start_point.y, start_point.heading, end_point.x, end_point.y, end_point.heading)
+        road_params, road_length = calculate_cubic_curve((u, v), uv_heading)
+
+        self.id = junction_id
+        self.lanes: list[Lane] = [Lane(LaneType.NORMAL, same_direction=True, width=width, id=-1)]
+        self.start_point = start_point
+        self.params = road_params
+        self.length = road_length
+        self.slope = (end_point.z - start_point.z) / road_length
+
+
+@ dataclass
+class JunctionConnection:
+    road: Road
+    start: bool  # True: contact at start of road, False: end of road (according to reference line point order)
+
+
 class RoadNetwork:
     def __init__(self):
         self.roads: list[Road] = []
-        self.nodes: dict[int, list[int]] = []
+        self.junctions: dict[str, list[JunctionConnection]] = {}  # Dictionary that maps junction IDs to a list of road IDs that are connected in that junction
         self.minmax_xy = [1e9, 1e9, -1e9, -1e9]  # min_x, min_y, max_x, max_y
 
     def add_road(self, road: Road):
@@ -166,6 +197,12 @@ class RoadNetwork:
     def get_junction_roads(self, node_id: int):
         pass
 
+    def add_junction(self, junction_id: str, connection: JunctionConnection):
+        if junction_id in self.junctions:
+            self.junctions[junction_id].append(connection)
+        else:
+            self.junctions[junction_id] = [connection]
+
 
 def shorten_point_list(points: list[ReferenceLinePoint], cut_length: float, from_start: bool, min_length: float = 1.0) -> tuple[list[ReferenceLinePoint], float]:
     """Shorten a line consisting of a list of coordinates by a set length.
@@ -177,7 +214,7 @@ def shorten_point_list(points: list[ReferenceLinePoint], cut_length: float, from
         cut_length (float): length that should be chopped of the line
         from_start (bool): whether to shorten the line from the start or the end
     Returns:
-        points (list[ReferenceLinePoint]): a shortened copy of the points list 
+        points (list[ReferenceLinePoint]): a shortened copy of the points list
     """
     total_length = sum(p.length for p in points)
 

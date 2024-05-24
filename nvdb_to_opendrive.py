@@ -6,7 +6,7 @@ from shapely import from_wkt, get_num_points, line_merge
 from shapely.ops import linemerge, unary_union
 from shapely.geometry import Point, LineString, MultiLineString
 from src.utils import *
-from src.road import LaneType, Road, RoadNetwork, RoadSegment
+from src.road import JunctionConnection, JunctionRoad, LaneType, Road, RoadNetwork, RoadSegment
 from src.constants import CENTER_COORDS, JUNCTION_MARGIN, road_types, detail_levels
 
 
@@ -103,9 +103,9 @@ def startBasicXODRFile() -> Element:
     return root
 
 
-def generate_single_road(sequence: dict, road_object: Road, id_suffix: int) -> Element:
+def generate_single_road(sequence: dict, road_object: Road) -> Element:
     # start road
-    road = ET.Element("road", name=sequence["adresse"], id=f"{sequence['veglenkesekvensid']}_{id_suffix}", rule="RHT", junction="-1")
+    road = ET.Element("road", name=sequence["adresse"], id=road_object.id, rule="RHT", junction="-1")
     link = ET.SubElement(road, "link")
     #ET.SubElement(link, "predecessor", elementType="junction", elementId=road_input["startJunction"])
     #ET.SubElement(link, "successor", elementType="junction", elementId=road_input["endJunction"])
@@ -130,12 +130,12 @@ def generate_single_road(sequence: dict, road_object: Road, id_suffix: int) -> E
     #add lanes
     lanes = ET.SubElement(road, "lanes")
     ET.SubElement(lanes, "laneOffset", s="0.0", a="0.0", b="0.0", c="0.0", d="0.0")
-    for s_offset, road_segment in road_object.lanes:
-        laneSection = ET.SubElement(lanes, "laneSection", s=str(s_offset))
+    for lane_segment in road_object.lanes:
+        laneSection = ET.SubElement(lanes, "laneSection", s=str(lane_segment.s_offset))
         left = ET.SubElement(laneSection, "left")
         center = ET.SubElement(laneSection, "center")
         right = ET.SubElement(laneSection, "right")
-        for nvdb_lane in road_segment.get_lanes():
+        for nvdb_lane in lane_segment.segment.get_lanes():
             if nvdb_lane.type == LaneType.INVALID:
                 lane = ET.SubElement(center, "lane", id="0", type="none", level="false")
                 ET.SubElement(lane, "roadMark", sOffset="0.0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
@@ -154,6 +154,7 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
     chains = filter_road_sequence(sequence)
     portals_to_nodes = {portal["id"]: portal["tilkobling"]["nodeid"] for portal in sequence["porter"]}
 
+    start_node_id = None
     road_segments = []
     id_suffix = 1
     for i, chain in enumerate(chains):
@@ -170,25 +171,65 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
         road_segment.add_nvdb_lanes(lanes_list, chain.get("vegbredde"))
         road_segments.append(road_segment)
 
-        #start_node_id = portals_to_nodes[chain["startport"]]
+        start_node_id = start_node_id if start_node_id is not None else portals_to_nodes[chain["startport"]]
         end_node_id = portals_to_nodes[chain["sluttport"]]
 
+        #print(len(nodes[end_node_id]))
         if len(nodes[end_node_id]) <= 2 and i != len(chains) - 1:  # normal road connection and not at end
             continue  # merge current with next road segment
 
         # make road
-        road_object = Road(road_segments, shorten=JUNCTION_MARGIN)
+        road_id = f"{sequence['veglenkesekvensid']}_{id_suffix}"
+        road_object = Road(road_segments, road_id, shorten=JUNCTION_MARGIN)
         road_network.add_road(road_object)
-        road = generate_single_road(sequence, road_object, id_suffix)
+        road_network.add_junction(str(start_node_id), JunctionConnection(road_object, start=True))
+        road_network.add_junction(str(end_node_id), JunctionConnection(road_object, start=False))
+        road = generate_single_road(sequence, road_object)
         root.append(road)
 
+        start_node_id = None
         road_segments = []
         id_suffix += 1
 
     return root
 
 
-def generate_junction(root: Element, roads: dict, node: tuple[int, list[int]], road_network: RoadNetwork):
+def generate_junction_road(road_object: JunctionRoad, junction_id: str) -> Element:
+    aU, aV, bU, bV, cU, cV, dU, dV = road_object.params
+
+    # start road
+    road = ET.Element("road", name=sequence["adresse"], id=road_object.id, rule="RHT", junction=junction_id, length=str(road_object.length))
+    link = ET.SubElement(road, "link")
+    #ET.SubElement(link, "predecessor", elementType="junction", elementId=road_input["startJunction"])
+    #ET.SubElement(link, "successor", elementType="junction", elementId=road_input["endJunction"])
+    roadType = ET.SubElement(road, "type", s="0.0", type="town")
+    ET.SubElement(roadType, "speed", max="50", unit="km/h")
+
+    # create geometry
+    planView = ET.SubElement(road, "planView")
+    elevationProfile = ET.SubElement(road, "elevationProfile")
+    geometry = ET.SubElement(planView, "geometry", s="0.0", x=str(road_object.start_point.x), y=str(road_object.start_point.y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
+    ET.SubElement(geometry, "paramPoly3", aU=str(aU), aV=str(aV), bU=str(bU), bV=str(bV), cU=str(cU), cV=str(cV), dU=str(dU), dV=str(dV), pRange="normalized")
+    ET.SubElement(elevationProfile, "elevation", s="0.0", a=str(road_object.start_point.z), b=str(road_object.slope), c="0.0", d="0.0")
+
+    #add lanes
+    lane_object = road_object.lanes[0]
+    lanes = ET.SubElement(road, "lanes")
+    ET.SubElement(lanes, "laneOffset", s="0.0", a="0.0", b="0.0", c="0.0", d="0.0")
+    laneSection = ET.SubElement(lanes, "laneSection", s="0.0")
+    center = ET.SubElement(laneSection, "center")
+    right = ET.SubElement(laneSection, "right")
+    center_lane = ET.SubElement(center, "lane", id="0", type="none", level="false")
+    #ET.SubElement(center_lane, "roadMark", sOffset="0.0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
+    lane = ET.SubElement(right, "lane", id=str(lane_object.id), type=lane_object.get_xodr_lane_type(), level="false")
+    ET.SubElement(lane, "link")
+    ET.SubElement(lane, "width", sOffset="0.0", a=str(lane_object.width), b="0.0", c="0.0", d="0.0")
+    #ET.SubElement(lane, "roadMark", sOffset="0.0", type="solid", material="standard", color="white", laneChange="none")
+
+    return road
+
+
+def generate_junction(root: Element, road_network: RoadNetwork):
     """Generates OpenDrive junctions. The junctions consist of several roads connecting each lane into the junction.
     The number of generated roads in each junction will be ,
 
@@ -197,9 +238,39 @@ def generate_junction(root: Element, roads: dict, node: tuple[int, list[int]], r
         roads (dict): _description_
         node (tuple[int, list[int]]): _description_
     """
-    node_id, connected_roads = node
-    if len(connected_roads) < 3:
-        return
+    for junction_id, connections in road_network.junctions.items():
+        if len(connections) < 3:
+            continue
+
+        for connection in connections:
+            segment = connection.road.lanes[0 if connection.start else -1].segment
+            incoming_lanes = segment.opposite_lanes if connection.start else segment.same_lanes
+            endpoint = connection.road.reference_line[0 if connection.start else -1].copy()
+            endpoint.heading = endpoint.heading if connection.start else (endpoint.heading + pi) % tau
+
+            offset = 0
+            for lane in incoming_lanes:
+                for out_connection in connections:
+                    if out_connection is connection:
+                        continue
+
+                    out_segment = out_connection.road.lanes[0 if out_connection.start else -1].segment
+                    out_lanes = out_segment.same_lanes if connection.start else out_segment.opposite_lanes
+                    out_endpoint = out_connection.road.reference_line[0 if out_connection.start else -1].copy()
+                    out_endpoint.heading = (out_endpoint.heading + pi) % tau if out_connection.start else out_endpoint.heading
+
+                    out_offset = 0
+                    i = 1
+                    for out_lane in out_lanes:
+                        junction_name = f"junction_{connection.road.id}_to_{out_connection.road.id}_{i}"
+                        junction_road = JunctionRoad(endpoint, out_endpoint, junction_name)
+                        road = generate_junction_road(junction_road, junction_id)
+                        root.append(road)
+
+                        out_offset += out_lane.width
+                        i += 1
+
+                offset += lane.width
 
 
 if __name__ == "__main__":
@@ -223,8 +294,7 @@ if __name__ == "__main__":
         #if i == 19:
         #    break
 
-    for node in nodes.items():
-        generate_junction(root, roads, node, road_network)
+    generate_junction(root, road_network)
 
     # set min/max coordinates
     header = root.find("header")
