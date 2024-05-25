@@ -239,8 +239,8 @@ def generate_junction(root: Element, road_network: RoadNetwork):
         node (tuple[int, list[int]]): _description_
     """
     for junction_id, connections in road_network.junctions.items():
-        if len(connections) < 3:
-            continue
+        #if len(connections) < 3:
+        #    continue
 
         for connection in connections:
             segment = connection.road.lanes[0 if connection.start else -1].segment
@@ -250,6 +250,13 @@ def generate_junction(root: Element, road_network: RoadNetwork):
 
             offset = 0
             for lane in incoming_lanes:
+                if lane.type != LaneType.NORMAL:
+                    continue
+
+                x, y = get_perpendicular_point(endpoint.x, endpoint.y, endpoint.heading, offset)
+                endpoint.x = x
+                endpoint.y = y
+
                 for out_connection in connections:
                     if out_connection is connection:
                         continue
@@ -257,18 +264,23 @@ def generate_junction(root: Element, road_network: RoadNetwork):
                     out_segment = out_connection.road.lanes[0 if out_connection.start else -1].segment
                     out_lanes = out_segment.same_lanes if connection.start else out_segment.opposite_lanes
                     out_endpoint = out_connection.road.reference_line[0 if out_connection.start else -1].copy()
-                    out_endpoint.heading = (out_endpoint.heading + pi) % tau if out_connection.start else out_endpoint.heading
+                    out_endpoint.heading = out_endpoint.heading if out_connection.start else (out_endpoint.heading + pi) % tau
 
                     out_offset = 0
-                    i = 1
                     for out_lane in out_lanes:
-                        junction_name = f"junction_{connection.road.id}_to_{out_connection.road.id}_{i}"
+                        if out_lane.type != LaneType.NORMAL:
+                            continue
+
+                        x, y = get_perpendicular_point(out_endpoint.x, out_endpoint.y, out_endpoint.heading, out_offset)
+                        out_endpoint.x = x
+                        out_endpoint.y = y
+
+                        junction_name = f"junction_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
                         junction_road = JunctionRoad(endpoint, out_endpoint, junction_name)
                         road = generate_junction_road(junction_road, junction_id)
                         root.append(road)
 
                         out_offset += out_lane.width
-                        i += 1
 
                 offset += lane.width
 

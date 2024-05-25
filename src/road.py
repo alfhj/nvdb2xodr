@@ -64,10 +64,10 @@ class RoadSegment:
 
     def add_lane(self, lane: Lane):
         if lane.same_direction:
-            lane.id = len(self.same_lanes) + 1
+            lane.id = -(len(self.same_lanes) + 1)
             self.same_lanes.append(lane)
         else:
-            lane.id = -(len(self.opposite_lanes) + 1)
+            lane.id = len(self.opposite_lanes) + 1
             self.opposite_lanes.append(lane)
 
     def add_nvdb_lanes(self, input: list[str], total_width: float = None):

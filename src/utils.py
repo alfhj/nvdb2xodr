@@ -63,7 +63,7 @@ def get_uv_coordinates(x1, y1, h1, x2, y2, h2):
     phi_uv = phi - h1
     u = dist * cos(phi_uv)
     v = dist * sin(phi_uv)
-    h = (h1 - h2) % tau
+    h = (h2 - h1) % tau
 
     return u, v, h
 
@@ -103,7 +103,7 @@ def calculate_cubic_curve(end: tuple[float], phi: float, length_subdivisions: in
     ps = [i / length_subdivisions for i in range(length_subdivisions + 1)]
     length = 0
     for p1, p2 in zip(ps[:-1], ps[1:]):
-        length += sqrt((u(p2) - u(p1)) ** 2 + (v(p2) - v(p1)) ** 2)
+        length += get_length(u(p1), v(p1), u(p2), v(p2))
 
     return (aU, aV, bU, bV, cU, cV, dU, dV), length
 
