@@ -157,16 +157,17 @@ class Road:
 
 
 class JunctionRoad:
-    def __init__(self, start_point: ReferenceLinePoint, end_point: ReferenceLinePoint, junction_id: str, width: float = DRIVING_WIDTH):
+    def __init__(self, start_point: ReferenceLinePoint, end_point: ReferenceLinePoint, junction_id: str, in_width: float = DRIVING_WIDTH, out_width: float = DRIVING_WIDTH):
         u, v, uv_heading = get_uv_coordinates(start_point.x, start_point.y, start_point.heading, end_point.x, end_point.y, end_point.heading)
         road_params, road_length = calculate_cubic_curve((u, v), uv_heading)
 
         self.id = junction_id
-        self.lanes: list[Lane] = [Lane(LaneType.NORMAL, same_direction=True, width=width, id=-1)]
+        self.lanes: list[Lane] = [Lane(LaneType.NORMAL, same_direction=True, width=in_width, id=-1)]
         self.start_point = start_point
         self.params = road_params
         self.length = road_length
         self.slope = (end_point.z - start_point.z) / road_length
+        self.width_b = (out_width - in_width) / road_length
 
 
 @ dataclass

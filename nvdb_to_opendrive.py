@@ -222,7 +222,7 @@ def generate_junction_road(road_object: JunctionRoad, junction_id: str, in_road:
     #ET.SubElement(center_lane, "roadMark", sOffset="0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
     lane = ET.SubElement(right, "lane", id=str(lane_object.id), type=lane_object.get_xodr_lane_type(), level="false")
     ET.SubElement(lane, "link")
-    ET.SubElement(lane, "width", sOffset="0", a=str(lane_object.width), b="0", c="0", d="0")
+    ET.SubElement(lane, "width", sOffset="0", a=str(lane_object.width), b=str(road_object.width_b), c="0", d="0")
     #ET.SubElement(lane, "roadMark", sOffset="0", type="solid", material="standard", color="white", laneChange="none")
 
     return road
@@ -292,7 +292,7 @@ def generate_junctions(root: Element, road_network: RoadNetwork):
                         out_endpoint.heading = out_heading
 
                         junction_name = f"connection_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
-                        junction_road = JunctionRoad(endpoint, out_endpoint, junction_name)
+                        junction_road = JunctionRoad(endpoint, out_endpoint, junction_name, lane.width, out_lane.width)
                         road = generate_junction_road(junction_road, junction_id, connection, out_connection)
                         root.append(road)
 
