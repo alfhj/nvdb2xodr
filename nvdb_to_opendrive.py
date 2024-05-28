@@ -105,7 +105,8 @@ def startBasicXODRFile() -> Element:
 
 def generate_single_road(sequence: dict, road_object: Road) -> Element:
     # start road
-    road = ET.Element("road", name=sequence["adresse"], id=road_object.id, rule="RHT", junction="-1")
+    road_name = sequence.get("adresse", f"Road {road_object.id}")
+    road = ET.Element("road", name=road_name, id=road_object.id, rule="RHT", junction="-1")
     link = ET.SubElement(road, "link")
     roadType = ET.SubElement(road, "type", s="0", type="town")
     ET.SubElement(roadType, "speed", max="50", unit="km/h")
@@ -239,10 +240,10 @@ def generate_junctions(root: Element, road_network: RoadNetwork):
     junction_elements = []
 
     for junction_id, connections in road_network.junctions.items():
-        #if len(connections) < 3:
-        #    continue
+        if len(connections) < 2:
+            continue
 
-        junction_element = ET.Element("junction", id=junction_id, name=junction_id)
+        junction_element = ET.Element("junction", id=junction_id, name=f"Junction {junction_id}")
 
         i = 0
         for connection in connections:
@@ -252,18 +253,21 @@ def generate_junctions(root: Element, road_network: RoadNetwork):
 
             segment = connection.road.lanes[0 if connection.start else -1].segment
             incoming_lanes = segment.opposite_lanes if connection.start else segment.same_lanes
-            endpoint = connection.road.reference_line[0 if connection.start else -1].copy()
+            endpoint_orig = connection.road.reference_line[0 if connection.start else -1]
             heading = connection.road.reference_line[0 if connection.start else -2].heading
-            endpoint.heading = (heading + pi) % tau if connection.start else heading
+            if connection.start:
+                heading = (heading + pi) % tau
 
             offset = 0
             for lane in incoming_lanes:
                 if not lane.is_drivable():
                     continue
 
-                x, y = get_perpendicular_point(endpoint.x, endpoint.y, endpoint.heading, -offset)
+                x, y = get_perpendicular_point(endpoint_orig.x, endpoint_orig.y, heading, -offset)
+                endpoint = endpoint_orig.copy()
                 endpoint.x = x
                 endpoint.y = y
+                endpoint.heading = heading
 
                 for out_connection in connections:
                     if out_connection is connection:
@@ -271,26 +275,29 @@ def generate_junctions(root: Element, road_network: RoadNetwork):
 
                     out_segment = out_connection.road.lanes[0 if out_connection.start else -1].segment
                     out_lanes = out_segment.same_lanes if out_connection.start else out_segment.opposite_lanes
-                    out_endpoint = out_connection.road.reference_line[0 if out_connection.start else -1].copy()
+                    out_endpoint_orig = out_connection.road.reference_line[0 if out_connection.start else -1]
                     out_heading = out_connection.road.reference_line[0 if out_connection.start else -2].heading
-                    out_endpoint.heading = out_heading if out_connection.start else (out_heading + pi) % tau
+                    if not out_connection.start:
+                        out_heading = (out_heading + pi) % tau
 
                     out_offset = 0
                     for out_lane in out_lanes:
                         if not out_lane.is_drivable():
                             continue
 
-                        x, y = get_perpendicular_point(out_endpoint.x, out_endpoint.y, out_endpoint.heading, -out_offset)
+                        x, y = get_perpendicular_point(out_endpoint_orig.x, out_endpoint_orig.y, out_heading, -out_offset)
+                        out_endpoint = out_endpoint_orig.copy()
                         out_endpoint.x = x
                         out_endpoint.y = y
+                        out_endpoint.heading = out_heading
 
-                        junction_name = f"junction_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
+                        junction_name = f"connection_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
                         junction_road = JunctionRoad(endpoint, out_endpoint, junction_name)
                         road = generate_junction_road(junction_road, junction_id, connection, out_connection)
                         root.append(road)
 
                         connection_element = ET.SubElement(junction_element, "connection", id=str(i), incomingRoad=connection.road.id, connectingRoad=junction_road.id, contactPoint="start")
-                        ET.SubElement(connection_element, "laneLink", **{"from": str(lane.id)}, to=str(out_lane.id))
+                        ET.SubElement(connection_element, "laneLink", **{"from": str(lane.id)}, to=str(junction_road.lanes[0].id))
 
                         out_offset += out_lane.width
                         i += 1
