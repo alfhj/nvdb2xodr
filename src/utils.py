@@ -219,8 +219,7 @@ def get_perpendicular_point(x, y, h, d):
     if d == 0:
         return (x, y)
 
-    phi = h + (pi / 2) * (1 if d > 0 else -1)
-    x1 = x + d * cos(phi)
-    y1 = y + d * sin(phi)
+    x1 = x - d * sin(h)
+    y1 = y + d * cos(h)
 
     return (x1, y1)

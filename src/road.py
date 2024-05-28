@@ -33,6 +33,9 @@ class Lane:
             LaneType.RIGHT_TURN: "exit"
         }.get(self.type, "driving")
 
+    def is_drivable(self):
+        return self.type not in [LaneType.INVALID, LaneType.BICYCLE]
+
 
 @dataclass
 class ReferenceLinePoint:
@@ -154,7 +157,7 @@ class Road:
 
 
 class JunctionRoad:
-    def __init__(self, start_point: ReferenceLinePoint, end_point: ReferenceLinePoint, junction_id: str,  width: float = DRIVING_WIDTH):
+    def __init__(self, start_point: ReferenceLinePoint, end_point: ReferenceLinePoint, junction_id: str, width: float = DRIVING_WIDTH):
         u, v, uv_heading = get_uv_coordinates(start_point.x, start_point.y, start_point.heading, end_point.x, end_point.y, end_point.heading)
         road_params, road_length = calculate_cubic_curve((u, v), uv_heading)
 

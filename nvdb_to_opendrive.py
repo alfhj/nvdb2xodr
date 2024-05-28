@@ -107,9 +107,7 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
     # start road
     road = ET.Element("road", name=sequence["adresse"], id=road_object.id, rule="RHT", junction="-1")
     link = ET.SubElement(road, "link")
-    #ET.SubElement(link, "predecessor", elementType="junction", elementId=road_input["startJunction"])
-    #ET.SubElement(link, "successor", elementType="junction", elementId=road_input["endJunction"])
-    roadType = ET.SubElement(road, "type", s="0.0", type="town")
+    roadType = ET.SubElement(road, "type", s="0", type="town")
     ET.SubElement(roadType, "speed", max="50", unit="km/h")
 
     # create geometry
@@ -120,7 +118,7 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
     for p in road_object.reference_line[:-1]:
         geometry = ET.Element("geometry", s=str(total_length), x=str(p.x), y=str(p.y), hdg=str(p.heading), length=str(p.length))
         ET.SubElement(geometry, "line")
-        ET.SubElement(elevationProfile, "elevation", s=str(total_length), a=str(p.z), b=str(p.slope), c="0.0", d="0.0")
+        ET.SubElement(elevationProfile, "elevation", s=str(total_length), a=str(p.z), b=str(p.slope), c="0", d="0")
 
         planView.append(geometry)
         total_length += p.length
@@ -129,7 +127,7 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
 
     #add lanes
     lanes = ET.SubElement(road, "lanes")
-    ET.SubElement(lanes, "laneOffset", s="0.0", a="0.0", b="0.0", c="0.0", d="0.0")
+    ET.SubElement(lanes, "laneOffset", s="0", a="0", b="0", c="0", d="0")
     for lane_segment in road_object.lanes:
         laneSection = ET.SubElement(lanes, "laneSection", s=str(lane_segment.s_offset))
         left = ET.SubElement(laneSection, "left")
@@ -138,14 +136,14 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
         for nvdb_lane in lane_segment.segment.get_lanes():
             if nvdb_lane.type == LaneType.INVALID:
                 lane = ET.SubElement(center, "lane", id="0", type="none", level="false")
-                ET.SubElement(lane, "roadMark", sOffset="0.0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
+                ET.SubElement(lane, "roadMark", sOffset="0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
                 continue
 
             parent = right if nvdb_lane.same_direction else left
             lane = ET.SubElement(parent, "lane", id=str(nvdb_lane.id), type=nvdb_lane.get_xodr_lane_type(), level="false")
             ET.SubElement(lane, "link")
-            ET.SubElement(lane, "width", sOffset="0.0", a=str(nvdb_lane.width), b="0.0", c="0.0", d="0.0")
-            ET.SubElement(lane, "roadMark", sOffset="0.0", type="solid", material="standard", color="white", laneChange="none")
+            ET.SubElement(lane, "width", sOffset="0", a=str(nvdb_lane.width), b="0", c="0", d="0")
+            ET.SubElement(lane, "roadMark", sOffset="0", type="solid", material="standard", color="white", laneChange="none")
 
     return road
 
@@ -194,42 +192,42 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
     return root
 
 
-def generate_junction_road(road_object: JunctionRoad, junction_id: str) -> Element:
+def generate_junction_road(road_object: JunctionRoad, junction_id: str, in_road: JunctionConnection, out_road: JunctionConnection) -> Element:
     aU, aV, bU, bV, cU, cV, dU, dV = road_object.params
 
     # start road
-    road = ET.Element("road", name=sequence["adresse"], id=road_object.id, rule="RHT", junction=junction_id, length=str(road_object.length))
+    road = ET.Element("road", name=road_object.id, id=road_object.id, junction=junction_id, length=str(road_object.length))
     link = ET.SubElement(road, "link")
-    #ET.SubElement(link, "predecessor", elementType="junction", elementId=road_input["startJunction"])
-    #ET.SubElement(link, "successor", elementType="junction", elementId=road_input["endJunction"])
-    roadType = ET.SubElement(road, "type", s="0.0", type="town")
+    ET.SubElement(link, "predecessor", elementType="road", elementId=in_road.road.id, contactPoint="start" if in_road.start else "end")
+    ET.SubElement(link, "successor", elementType="road", elementId=out_road.road.id, contactPoint="start" if out_road.start else "end")
+    roadType = ET.SubElement(road, "type", s="0", type="town")
     ET.SubElement(roadType, "speed", max="50", unit="km/h")
 
     # create geometry
     planView = ET.SubElement(road, "planView")
     elevationProfile = ET.SubElement(road, "elevationProfile")
-    geometry = ET.SubElement(planView, "geometry", s="0.0", x=str(road_object.start_point.x), y=str(road_object.start_point.y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
+    geometry = ET.SubElement(planView, "geometry", s="0", x=str(road_object.start_point.x), y=str(road_object.start_point.y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
     ET.SubElement(geometry, "paramPoly3", aU=str(aU), aV=str(aV), bU=str(bU), bV=str(bV), cU=str(cU), cV=str(cV), dU=str(dU), dV=str(dV), pRange="normalized")
-    ET.SubElement(elevationProfile, "elevation", s="0.0", a=str(road_object.start_point.z), b=str(road_object.slope), c="0.0", d="0.0")
+    ET.SubElement(elevationProfile, "elevation", s="0", a=str(road_object.start_point.z), b=str(road_object.slope), c="0", d="0")
 
     #add lanes
     lane_object = road_object.lanes[0]
     lanes = ET.SubElement(road, "lanes")
-    ET.SubElement(lanes, "laneOffset", s="0.0", a="0.0", b="0.0", c="0.0", d="0.0")
-    laneSection = ET.SubElement(lanes, "laneSection", s="0.0")
+    ET.SubElement(lanes, "laneOffset", s="0", a="0", b="0", c="0", d="0")
+    laneSection = ET.SubElement(lanes, "laneSection", s="0")
     center = ET.SubElement(laneSection, "center")
     right = ET.SubElement(laneSection, "right")
     center_lane = ET.SubElement(center, "lane", id="0", type="none", level="false")
-    #ET.SubElement(center_lane, "roadMark", sOffset="0.0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
+    #ET.SubElement(center_lane, "roadMark", sOffset="0", type="broken", material="standard", color="white", width="0.125", laneChange="none")
     lane = ET.SubElement(right, "lane", id=str(lane_object.id), type=lane_object.get_xodr_lane_type(), level="false")
     ET.SubElement(lane, "link")
-    ET.SubElement(lane, "width", sOffset="0.0", a=str(lane_object.width), b="0.0", c="0.0", d="0.0")
-    #ET.SubElement(lane, "roadMark", sOffset="0.0", type="solid", material="standard", color="white", laneChange="none")
+    ET.SubElement(lane, "width", sOffset="0", a=str(lane_object.width), b="0", c="0", d="0")
+    #ET.SubElement(lane, "roadMark", sOffset="0", type="solid", material="standard", color="white", laneChange="none")
 
     return road
 
 
-def generate_junction(root: Element, road_network: RoadNetwork):
+def generate_junctions(root: Element, road_network: RoadNetwork):
     """Generates OpenDrive junctions. The junctions consist of several roads connecting each lane into the junction.
     The number of generated roads in each junction will be ,
 
@@ -238,22 +236,32 @@ def generate_junction(root: Element, road_network: RoadNetwork):
         roads (dict): _description_
         node (tuple[int, list[int]]): _description_
     """
+    junction_elements = []
+
     for junction_id, connections in road_network.junctions.items():
         #if len(connections) < 3:
         #    continue
 
+        junction_element = ET.Element("junction", id=junction_id, name=junction_id)
+
+        i = 0
         for connection in connections:
+            connection_element = None
+            connected_road = root.find(f"./road[@id='{connection.road.id}']/link")
+            ET.SubElement(connected_road, "predecessor" if connection.start else "successor", elementType="junction", elementId=junction_id)
+
             segment = connection.road.lanes[0 if connection.start else -1].segment
             incoming_lanes = segment.opposite_lanes if connection.start else segment.same_lanes
             endpoint = connection.road.reference_line[0 if connection.start else -1].copy()
-            endpoint.heading = endpoint.heading if connection.start else (endpoint.heading + pi) % tau
+            heading = connection.road.reference_line[0 if connection.start else -2].heading
+            endpoint.heading = (heading + pi) % tau if connection.start else heading
 
             offset = 0
             for lane in incoming_lanes:
-                if lane.type != LaneType.NORMAL:
+                if not lane.is_drivable():
                     continue
 
-                x, y = get_perpendicular_point(endpoint.x, endpoint.y, endpoint.heading, offset)
+                x, y = get_perpendicular_point(endpoint.x, endpoint.y, endpoint.heading, -offset)
                 endpoint.x = x
                 endpoint.y = y
 
@@ -262,31 +270,38 @@ def generate_junction(root: Element, road_network: RoadNetwork):
                         continue
 
                     out_segment = out_connection.road.lanes[0 if out_connection.start else -1].segment
-                    out_lanes = out_segment.same_lanes if connection.start else out_segment.opposite_lanes
+                    out_lanes = out_segment.same_lanes if out_connection.start else out_segment.opposite_lanes
                     out_endpoint = out_connection.road.reference_line[0 if out_connection.start else -1].copy()
-                    out_endpoint.heading = out_endpoint.heading if out_connection.start else (out_endpoint.heading + pi) % tau
+                    out_heading = out_connection.road.reference_line[0 if out_connection.start else -2].heading
+                    out_endpoint.heading = out_heading if out_connection.start else (out_heading + pi) % tau
 
                     out_offset = 0
                     for out_lane in out_lanes:
-                        if out_lane.type != LaneType.NORMAL:
+                        if not out_lane.is_drivable():
                             continue
 
-                        x, y = get_perpendicular_point(out_endpoint.x, out_endpoint.y, out_endpoint.heading, out_offset)
+                        x, y = get_perpendicular_point(out_endpoint.x, out_endpoint.y, out_endpoint.heading, -out_offset)
                         out_endpoint.x = x
                         out_endpoint.y = y
 
                         junction_name = f"junction_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
                         junction_road = JunctionRoad(endpoint, out_endpoint, junction_name)
-                        road = generate_junction_road(junction_road, junction_id)
+                        road = generate_junction_road(junction_road, junction_id, connection, out_connection)
                         root.append(road)
 
-                        out_offset += out_lane.width
+                        connection_element = ET.SubElement(junction_element, "connection", id=str(i), incomingRoad=connection.road.id, connectingRoad=junction_road.id, contactPoint="start")
+                        ET.SubElement(connection_element, "laneLink", **{"from": str(lane.id)}, to=str(out_lane.id))
 
+                        out_offset += out_lane.width
+                        i += 1
                 offset += lane.width
+        junction_elements.append(junction_element)
+    root.extend(junction_elements)
 
 
 if __name__ == "__main__":
     input_file = "veglenkesekvens2a.json"
+    output_file = "../OpenDrive/gloshaugen_nvdb.xodr"
     print(f"Converting NVDB file {input_file} to OpenDrive format")
     start_time = datetime.now()
 
@@ -306,7 +321,7 @@ if __name__ == "__main__":
         #if i == 19:
         #    break
 
-    generate_junction(root, road_network)
+    generate_junctions(root, road_network)
 
     # set min/max coordinates
     header = root.find("header")
@@ -319,7 +334,7 @@ if __name__ == "__main__":
     #ElementTree.tostring(xodr, xml_declaration=True)
     ET.indent(root, space="    ")
     #print(ET.tostring(xodr, doctype='<?xml version="1.0" encoding="UTF-8"?>', pretty_print=True).decode())
-    ElementTree(root).write(get_file_path("gloshaugen_nvdb.xodr"), doctype='<?xml version="1.0" encoding="UTF-8"?>', encoding="utf-8")
+    ElementTree(root).write(get_file_path(output_file), doctype='<?xml version="1.0" encoding="UTF-8"?>', encoding="utf-8")
 
     total_time = datetime.now() - start_time
     print(f"Finished in {total_time.total_seconds():.2f} seconds")
