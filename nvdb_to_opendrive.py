@@ -149,7 +149,7 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
     return road
 
 
-def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[int]], road_network: RoadNetwork):
+def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[int]], road_network: RoadNetwork, next_id: int):
     chains = filter_road_sequence(sequence)
     portals_to_nodes = {portal["id"]: portal["tilkobling"]["nodeid"] for portal in sequence["porter"]}
 
@@ -178,7 +178,8 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
             continue  # merge current with next road segment
 
         # make road
-        road_id = f"{sequence['veglenkesekvensid']}_{id_suffix}"
+        #road_id = f"{sequence['veglenkesekvensid']}_{id_suffix}"
+        road_id = str(next_id)
         road_object = Road(road_segments, road_id, shorten=JUNCTION_MARGIN)
         road_network.add_road(road_object)
         road_network.add_junction(str(start_node_id), JunctionConnection(road_object, start=True))
@@ -189,15 +190,16 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
         start_node_id = None
         road_segments = []
         id_suffix += 1
+        next_id += 1
 
-    return root
+    return next_id
 
 
 def generate_junction_road(road_object: JunctionRoad, junction_id: str, in_road: JunctionConnection, out_road: JunctionConnection, in_lane: int, out_lane: int) -> Element:
     aU, aV, bU, bV, cU, cV, dU, dV = road_object.params
 
     # start road
-    road = ET.Element("road", name=road_object.id, id=road_object.id, junction=junction_id, length=str(road_object.length))
+    road = ET.Element("road", name=road_object.name, id=road_object.id, junction=junction_id, length=str(road_object.length))
     link = ET.SubElement(road, "link")
     ET.SubElement(link, "predecessor", elementType="road", elementId=in_road.road.id, contactPoint="start" if in_road.start else "end")
     ET.SubElement(link, "successor", elementType="road", elementId=out_road.road.id, contactPoint="start" if out_road.start else "end")
@@ -230,7 +232,7 @@ def generate_junction_road(road_object: JunctionRoad, junction_id: str, in_road:
     return road
 
 
-def generate_junctions(root: Element, road_network: RoadNetwork):
+def generate_junctions(root: Element, road_network: RoadNetwork, next_id: int):
     """Generates OpenDrive junctions. The junctions consist of several roads connecting each lane into the junction.
     The number of generated roads in each junction will be ,
 
@@ -245,13 +247,14 @@ def generate_junctions(root: Element, road_network: RoadNetwork):
         if len(connections) < 2:
             continue
 
-        junction_element = ET.Element("junction", id=junction_id, name=f"Junction {junction_id}")
+        junction_element = ET.Element("junction", id=str(next_id), name=junction_id)
+        next_id += 1
 
         i = 0
         for connection in connections:
             connection_element = None
             connected_road = root.find(f"./road[@id='{connection.road.id}']/link")
-            ET.SubElement(connected_road, "predecessor" if connection.start else "successor", elementType="junction", elementId=junction_id)
+            ET.SubElement(connected_road, "predecessor" if connection.start else "successor", elementType="junction", elementId=junction_element.get("id"))
 
             segment = connection.road.lanes[0 if connection.start else -1].segment
             incoming_lanes = segment.opposite_lanes if connection.start else segment.same_lanes
@@ -293,13 +296,14 @@ def generate_junctions(root: Element, road_network: RoadNetwork):
                         out_endpoint.y = y
                         out_endpoint.heading = out_heading
 
-                        junction_name = f"connection_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
-                        junction_road = JunctionRoad(endpoint, out_endpoint, junction_name, lane.width, out_lane.width)
-                        road = generate_junction_road(junction_road, junction_id, connection, out_connection, lane.id, out_lane.id)
+                        connection_name = f"connection_{connection.road.id}_to_{out_connection.road.id}_lane_{lane.id}_to_{out_lane.id}"
+                        connection_road = JunctionRoad(endpoint, out_endpoint, str(next_id), connection_name, lane.width, out_lane.width)
+                        next_id += 1
+                        road = generate_junction_road(connection_road, junction_element.get("id"), connection, out_connection, lane.id, out_lane.id)
                         root.append(road)
 
-                        connection_element = ET.SubElement(junction_element, "connection", id=str(i), incomingRoad=connection.road.id, connectingRoad=junction_road.id, contactPoint="start")
-                        ET.SubElement(connection_element, "laneLink", **{"from": str(lane.id)}, to=str(junction_road.lanes[0].id))
+                        connection_element = ET.SubElement(junction_element, "connection", id=str(i), incomingRoad=connection.road.id, connectingRoad=connection_road.id, contactPoint="start")
+                        ET.SubElement(connection_element, "laneLink", **{"from": str(lane.id)}, to=str(connection_road.lanes[0].id))
 
                         out_offset += out_lane.width
                         i += 1
@@ -323,14 +327,11 @@ if __name__ == "__main__":
     root = startBasicXODRFile()
 
     # road sequence > road chain > road segment
-    i = 0
+    next_id = 0
     for sequence in roads:
-        generate_road_sequence(root, sequence, nodes, road_network)
-        i += 1
-        #if i == 19:
-        #    break
+        next_id = generate_road_sequence(root, sequence, nodes, road_network, next_id)
 
-    generate_junctions(root, road_network)
+    generate_junctions(root, road_network, next_id)
 
     # set min/max coordinates
     header = root.find("header")
