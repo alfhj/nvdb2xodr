@@ -105,7 +105,7 @@ def startBasicXODRFile() -> Element:
 
 def generate_single_road(sequence: dict, road_object: Road) -> Element:
     # start road
-    road_name = sequence.get("adresse", f"Road {road_object.id}")
+    road_name = f"{sequence.get('adresse', 'Road')} ({sequence['veglenkesekvensid']})"
     road = ET.Element("road", name=road_name, id=road_object.id, rule="RHT", junction="-1")
     link = ET.SubElement(road, "link")
     roadType = ET.SubElement(road, "type", s="0", type="town")
@@ -313,7 +313,7 @@ def generate_junctions(root: Element, road_network: RoadNetwork, next_id: int):
 
 
 if __name__ == "__main__":
-    input_file = "veglenkesekvens2a.json"
+    input_file = "veglenkesekvens_gloshaugen.json"
     output_file = "../OpenDrive/gloshaugen_nvdb.xodr"
     print(f"Converting NVDB file {input_file} to OpenDrive format")
     start_time = datetime.now()

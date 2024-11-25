@@ -4,6 +4,7 @@ Convert Vegvesen NVDB road network to OpenDrive
 ## TODO:
 - [x] Junctions
 - [ ] Fix roundabouts and missing roads
-- [ ] Incorporate optional FKB data
+- [ ] Convert to to intermediary format using NetworkX
+- [ ] Incorporate optional road polygon data
 - [ ] Lane access for bus lanes
 - [ ] Setting types for exit ramps
