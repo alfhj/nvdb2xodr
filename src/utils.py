@@ -1,7 +1,6 @@
-from math import atan2, cos, pi, sin, sqrt, tau
+from math import atan2, cos, pi, sin, tau
 from pathlib import Path
 from shapely.geometry import Point, LineString
-import numpy as np
 import json
 
 import pyproj

@@ -2,9 +2,6 @@ import re
 import lxml.etree as ET
 from lxml.etree import Element, ElementTree
 from datetime import datetime
-from shapely import from_wkt, get_num_points, line_merge
-from shapely.ops import linemerge, unary_union
-from shapely.geometry import Point, LineString, MultiLineString
 from src.utils import *
 from src.road import JunctionConnection, JunctionRoad, LaneType, Road, RoadNetwork, RoadSegment
 from src.constants import CENTER_COORDS, JUNCTION_MARGIN, road_types, detail_levels
