@@ -154,15 +154,18 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
     road_segments = []
     id_suffix = 1
     for i, chain in enumerate(chains):
-        if "feltoversikt" not in chain:
-            continue
+        lanes_list = chain.get("feltoversikt")
+        if lanes_list is None:
+            if chain["type"] == "KONNEKTERING":
+                lanes_list = ["1", "2"]  # assume two lanes on KONNEKTERING - TODO: use same as closest neighbour
+            else:
+                continue
 
         points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
         points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
         if len(points_list) < 2:
             continue
 
-        lanes_list = chain["feltoversikt"]
         road_segment = RoadSegment(points_list)
         road_segment.add_nvdb_lanes(lanes_list, chain.get("vegbredde"))
         road_segments.append(road_segment)

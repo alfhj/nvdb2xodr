@@ -87,4 +87,4 @@ def run():
     road_merged = merge_data(addresses, roads, widths)
 
     print("Writing JSON output")
-    dump_json(road_merged, "veglenkesekvens_gloshaugen1.json")
+    dump_json(road_merged, "veglenkesekvens_gloshaugen.json")
