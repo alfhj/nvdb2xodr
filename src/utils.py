@@ -52,6 +52,10 @@ def get_relative_coordinates(x, y):
     return (x - center[0], y - center[1])
 
 
+def get_utm_coordinates(x, y):
+    return (x + center[0], y + center[1])
+
+
 def get_uv_coordinates(x1, y1, h1, x2, y2, h2):
     """Get uv coordinates of point (x2, y2) relative to (x1, y1) and its heading h1
     The U-axis will point in the same direction as h1, and the V-axis will point perpendicular to it

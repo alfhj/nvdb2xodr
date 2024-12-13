@@ -1,10 +1,11 @@
 import re
+from datetime import datetime
+
 import lxml.etree as ET
 from lxml.etree import Element, ElementTree
-from datetime import datetime
-from src.utils import *
+from src.constants import JUNCTION_MARGIN, SAVE_RELATIVE_COORDINATES, detail_levels, road_types
 from src.road import JunctionConnection, JunctionRoad, LaneType, Road, RoadNetwork, RoadSegment
-from src.constants import CENTER_COORDS, JUNCTION_MARGIN, road_types, detail_levels
+from src.utils import *
 
 
 def SubElement(parent: Element, **kwargs):
@@ -95,8 +96,11 @@ def split_road_into_parts(roads: list):
 def startBasicXODRFile() -> Element:
     root = ET.Element("OpenDRIVE")
     header = ET.SubElement(root, "header", revMajor="1", revMinor="6", name="Glosehaugen", version="0.02", date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-    #ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0=0 +lon_0=0 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
-    ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0={CENTER_COORDS[0]} +lon_0={CENTER_COORDS[1]} +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
+    if SAVE_RELATIVE_COORDINATES:
+        ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0={CENTER_COORDS[0]} +lon_0={CENTER_COORDS[1]} +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
+    else:
+        ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+
     return root
 
 
@@ -114,7 +118,8 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
 
     total_length = 0
     for p in road_object.reference_line[:-1]:
-        geometry = ET.Element("geometry", s=str(total_length), x=str(p.x), y=str(p.y), hdg=str(p.heading), length=str(p.length))
+        x, y = (p.x, p.y) if SAVE_RELATIVE_COORDINATES else get_utm_coordinates(p.x, p.y)
+        geometry = ET.Element("geometry", s=str(total_length), x=str(x), y=str(y), hdg=str(p.heading), length=str(p.length))
         ET.SubElement(geometry, "line")
         ET.SubElement(elevationProfile, "elevation", s=str(total_length), a=str(p.z), b=str(p.slope), c="0", d="0")
 
@@ -209,7 +214,8 @@ def generate_junction_road(road_object: JunctionRoad, junction_id: str, in_road:
     # create geometry
     planView = ET.SubElement(road, "planView")
     elevationProfile = ET.SubElement(road, "elevationProfile")
-    geometry = ET.SubElement(planView, "geometry", s="0", x=str(road_object.start_point.x), y=str(road_object.start_point.y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
+    x, y = (road_object.start_point.x, road_object.start_point.y) if SAVE_RELATIVE_COORDINATES else get_utm_coordinates(road_object.start_point.x, road_object.start_point.y)
+    geometry = ET.SubElement(planView, "geometry", s="0", x=str(x), y=str(y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
     ET.SubElement(geometry, "paramPoly3", aU=str(aU), aV=str(aV), bU=str(bU), bV=str(bV), cU=str(cU), cV=str(cV), dU=str(dU), dV=str(dV), pRange="normalized")
     ET.SubElement(elevationProfile, "elevation", s="0", a=str(road_object.start_point.z), b=str(road_object.slope), c="0", d="0")
 
@@ -336,6 +342,10 @@ if __name__ == "__main__":
     # set min/max coordinates
     header = root.find("header")
     minx, miny, maxx, maxy = road_network.minmax_xy
+    if not SAVE_RELATIVE_COORDINATES:
+        minx, miny = get_utm_coordinates(minx, miny)
+        maxx, maxy = get_utm_coordinates(maxx, maxy)
+
     header.set("west", str(minx))
     header.set("south", str(miny))
     header.set("east", str(maxx))
