@@ -130,6 +130,10 @@ class Road:
 
             x1, y1 = get_relative_coordinates(x1, y1)
             x2, y2 = get_relative_coordinates(x2, y2)
+
+            if x1 == x2 and y1 == y2:
+                continue  # TODO: handle dataset errors, e.g. at 269688.312 7039242.958
+
             heading = get_heading(x1, y1, x2, y2)
             length = get_length(x1, y1, x2, y2)
             slope = (z2 - z1) / length
@@ -167,8 +171,8 @@ class JunctionRoad:
         self.start_point = start_point
         self.params = road_params
         self.length = road_length
-        self.slope = (end_point.z - start_point.z) / road_length
-        self.width_b = (out_width - in_width) / road_length
+        self.slope = (end_point.z - start_point.z) / road_length if road_length != 0 else 0  # TODO: fix 0 length roads
+        self.width_b = (out_width - in_width) / road_length if road_length != 0 else 0
 
 
 @ dataclass

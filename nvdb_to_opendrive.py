@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from datetime import datetime
 
 import lxml.etree as ET
@@ -6,6 +7,13 @@ from lxml.etree import Element, ElementTree
 from src.constants import JUNCTION_MARGIN, SAVE_RELATIVE_COORDINATES, detail_levels, road_types
 from src.road import JunctionConnection, JunctionRoad, LaneType, Road, RoadNetwork, RoadSegment
 from src.utils import *
+
+
+@dataclass
+class Config:
+    input_file: str
+    output_file: str
+    boundary: str
 
 
 def SubElement(parent: Element, **kwargs):
@@ -166,8 +174,14 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
             else:
                 continue
 
-        points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
-        points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
+        line_string = chain["geometri"]["wkt"]
+        if line_string.startswith("LINESTRING Z"):
+            points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
+            points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
+        else:  # TODO: figure out what to do with missing height coordinates
+            points_string = re.search(r"LINESTRING \((.*)\)", chain["geometri"]["wkt"]).group(1)
+            points_list = [tuple([float(p) for p in ps.strip().split(" ")] + [0]) for ps in points_string.split(",")]
+
         if len(points_list) < 2:
             continue
 
@@ -318,13 +332,11 @@ def generate_junctions(root: Element, road_network: RoadNetwork, next_id: int):
     root.extend(junction_elements)
 
 
-if __name__ == "__main__":
-    input_file = "veglenkesekvens_gloshaugen.json"
-    output_file = "../OpenDrive/gloshaugen_nvdb.xodr"
-    print(f"Converting NVDB file {input_file} to OpenDrive format")
+def main(config: Config):
+    print(f"Converting NVDB file {config.input_file} to OpenDrive format")
     start_time = datetime.now()
 
-    roads = load_json(get_file_path(input_file))
+    roads = load_json(config.input_file)
 
     merge_linked_locations(roads)
     nodes = get_nodes(roads)
@@ -354,7 +366,15 @@ if __name__ == "__main__":
     #ElementTree.tostring(xodr, xml_declaration=True)
     ET.indent(root, space="    ")
     #print(ET.tostring(xodr, doctype='<?xml version="1.0" encoding="UTF-8"?>', pretty_print=True).decode())
-    ElementTree(root).write(get_file_path(output_file), doctype='<?xml version="1.0" encoding="UTF-8"?>', encoding="utf-8")
+    ElementTree(root).write(config.output_file, doctype='<?xml version="1.0" encoding="UTF-8"?>', encoding="utf-8")
 
-    total_time = datetime.now() - start_time
-    print(f"Finished in {total_time.total_seconds():.2f} seconds")
+    total_time = (datetime.now() - start_time).total_seconds()
+    print(f"Finished in {total_time:.2f} seconds")
+
+
+if __name__ == "__main__":
+    gløshaugen = Config("../Notebooks/veglenkesekvens_gloshaugen.json", "../OpenDrive/gloshaugen_nvdb.xodr", "270000,7039700,271200,7041000")
+    sandmoen = Config("../Notebooks/veglenkesekvens_sandmoen.json", "../OpenDrive/sandmoen_nvdb.xodr", "267500,7030500,268500,7031500")
+    sandmoen1 = Config("../Notebooks/nvdb_multi_sandmoen/veglenkesekvens_sandmoen_5000.json", "../OpenDrive/gloshaugen_test.xodr", "270000,7039700,271200,7041000")
+
+    main(sandmoen)
