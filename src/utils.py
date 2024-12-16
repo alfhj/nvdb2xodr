@@ -1,12 +1,11 @@
-from math import atan2, cos, pi, sin, sqrt, tau
+from math import atan2, cos, pi, sin, tau
 from pathlib import Path
 from shapely.geometry import Point, LineString
-import numpy as np
 import json
 
 import pyproj
 
-from .constants import CENTER_COORDS, DATA_PATH
+from .constants import CENTER_COORDS
 
 #transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:5973")
 transform = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:25833")
@@ -21,10 +20,6 @@ def dump_json(obj, path, pretty=True):
 def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def get_file_path(filename):
-    return Path(DATA_PATH).joinpath(filename)
 
 
 def rotate(angle, phi):
@@ -51,6 +46,10 @@ def get_total_length(points: list[tuple[float]]):
 
 def get_relative_coordinates(x, y):
     return (x - center[0], y - center[1])
+
+
+def get_utm_coordinates(x, y):
+    return (x + center[0], y + center[1])
 
 
 def get_uv_coordinates(x1, y1, h1, x2, y2, h2):

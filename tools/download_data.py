@@ -70,10 +70,7 @@ def merge_data(addresses, roads, widths):
     return road_merged
 
 
-def run():
-    #boundary = "270000,7039700,271200,7041000"  # gløshaugen
-    boundary = "267500,7030500,268500,7031500"  # sandmoen
-
+def run(boundary: str, output_file: str):
     print("Downloading roads")
     roads = get_roads(boundary)
 
@@ -87,4 +84,4 @@ def run():
     road_merged = merge_data(addresses, roads, widths)
 
     print("Writing JSON output")
-    dump_json(road_merged, "veglenkesekvens_sandmoen.json")
+    dump_json(road_merged, output_file)

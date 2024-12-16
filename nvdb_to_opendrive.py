@@ -1,13 +1,19 @@
 import re
+from dataclasses import dataclass
+from datetime import datetime
+
 import lxml.etree as ET
 from lxml.etree import Element, ElementTree
-from datetime import datetime
-from shapely import from_wkt, get_num_points, line_merge
-from shapely.ops import linemerge, unary_union
-from shapely.geometry import Point, LineString, MultiLineString
-from src.utils import *
+from src.constants import JUNCTION_MARGIN, SAVE_RELATIVE_COORDINATES, detail_levels, road_types
 from src.road import JunctionConnection, JunctionRoad, LaneType, Road, RoadNetwork, RoadSegment
-from src.constants import CENTER_COORDS, JUNCTION_MARGIN, road_types, detail_levels
+from src.utils import *
+
+
+@dataclass
+class Config:
+    input_file: str
+    output_file: str
+    boundary: str
 
 
 def SubElement(parent: Element, **kwargs):
@@ -98,14 +104,17 @@ def split_road_into_parts(roads: list):
 def startBasicXODRFile() -> Element:
     root = ET.Element("OpenDRIVE")
     header = ET.SubElement(root, "header", revMajor="1", revMinor="6", name="Glosehaugen", version="0.02", date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-    #ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0=0 +lon_0=0 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
-    ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0={CENTER_COORDS[0]} +lon_0={CENTER_COORDS[1]} +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
+    if SAVE_RELATIVE_COORDINATES:
+        ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=tmerc +lat_0={CENTER_COORDS[0]} +lon_0={CENTER_COORDS[1]} +x_0=0 +y_0=0 +ellps=GRS80 +units=m +vunits=m")
+    else:
+        ET.SubElement(header, "geoReference").text = ET.CDATA(f"+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+
     return root
 
 
 def generate_single_road(sequence: dict, road_object: Road) -> Element:
     # start road
-    road_name = sequence.get("adresse", f"Road {road_object.id}")
+    road_name = f"{sequence.get('adresse', 'Road')} ({sequence['veglenkesekvensid']})"
     road = ET.Element("road", name=road_name, id=road_object.id, rule="RHT", junction="-1")
     link = ET.SubElement(road, "link")
     roadType = ET.SubElement(road, "type", s="0", type="town")
@@ -117,7 +126,8 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
 
     total_length = 0
     for p in road_object.reference_line[:-1]:
-        geometry = ET.Element("geometry", s=str(total_length), x=str(p.x), y=str(p.y), hdg=str(p.heading), length=str(p.length))
+        x, y = (p.x, p.y) if SAVE_RELATIVE_COORDINATES else get_utm_coordinates(p.x, p.y)
+        geometry = ET.Element("geometry", s=str(total_length), x=str(x), y=str(y), hdg=str(p.heading), length=str(p.length))
         ET.SubElement(geometry, "line")
         ET.SubElement(elevationProfile, "elevation", s=str(total_length), a=str(p.z), b=str(p.slope), c="0", d="0")
 
@@ -150,22 +160,31 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
 
 
 def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[int]], road_network: RoadNetwork, next_id: int):
-    chains = filter_road_sequence(sequence)
+    chains = filter_road_sequence(sequence)  # TODO: use nodes as explicit link between chains instead of start position order
     portals_to_nodes = {portal["id"]: portal["tilkobling"]["nodeid"] for portal in sequence["porter"]}
 
     start_node_id = None
     road_segments = []
     id_suffix = 1
     for i, chain in enumerate(chains):
-        if "feltoversikt" not in chain:
-            continue
+        lanes_list = chain.get("feltoversikt")
+        if lanes_list is None:
+            if chain["type"] == "KONNEKTERING":
+                lanes_list = ["1", "2"]  # assume two lanes on KONNEKTERING - TODO: use same as closest neighbour
+            else:
+                continue
 
-        points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
-        points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
+        line_string = chain["geometri"]["wkt"]
+        if line_string.startswith("LINESTRING Z"):
+            points_string = re.search(r"LINESTRING Z\((.*)\)", chain["geometri"]["wkt"]).group(1)
+            points_list = [tuple(float(p) for p in ps.strip().split(" ")) for ps in points_string.split(",")]
+        else:  # TODO: figure out what to do with missing height coordinates
+            points_string = re.search(r"LINESTRING \((.*)\)", chain["geometri"]["wkt"]).group(1)
+            points_list = [tuple([float(p) for p in ps.strip().split(" ")] + [0]) for ps in points_string.split(",")]
+
         if len(points_list) < 2:
             continue
 
-        lanes_list = chain["feltoversikt"]
         road_segment = RoadSegment(points_list)
         road_segment.add_nvdb_lanes(lanes_list, chain.get("vegbredde"))
         road_segments.append(road_segment)
@@ -173,13 +192,11 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
         start_node_id = start_node_id if start_node_id is not None else portals_to_nodes[chain["startport"]]
         end_node_id = portals_to_nodes[chain["sluttport"]]
 
-        #print(len(nodes[end_node_id]))
         if len(nodes[end_node_id]) <= 2 and i != len(chains) - 1:  # normal road connection and not at end
             continue  # merge current with next road segment
 
         # make road
-        #road_id = f"{sequence['veglenkesekvensid']}_{id_suffix}"
-        road_id = str(next_id)
+        road_id = str(next_id)  # f"{sequence['veglenkesekvensid']}_{id_suffix}"
         road_object = Road(road_segments, road_id, shorten=JUNCTION_MARGIN)
         road_network.add_road(road_object)
         road_network.add_junction(str(start_node_id), JunctionConnection(road_object, start=True))
@@ -209,7 +226,8 @@ def generate_junction_road(road_object: JunctionRoad, junction_id: str, in_road:
     # create geometry
     planView = ET.SubElement(road, "planView")
     elevationProfile = ET.SubElement(road, "elevationProfile")
-    geometry = ET.SubElement(planView, "geometry", s="0", x=str(road_object.start_point.x), y=str(road_object.start_point.y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
+    x, y = (road_object.start_point.x, road_object.start_point.y) if SAVE_RELATIVE_COORDINATES else get_utm_coordinates(road_object.start_point.x, road_object.start_point.y)
+    geometry = ET.SubElement(planView, "geometry", s="0", x=str(x), y=str(y), hdg=str(road_object.start_point.heading), length=str(road_object.length))
     ET.SubElement(geometry, "paramPoly3", aU=str(aU), aV=str(aV), bU=str(bU), bV=str(bV), cU=str(cU), cV=str(cV), dU=str(dU), dV=str(dV), pRange="normalized")
     ET.SubElement(elevationProfile, "elevation", s="0", a=str(road_object.start_point.z), b=str(road_object.slope), c="0", d="0")
 
@@ -312,13 +330,11 @@ def generate_junctions(root: Element, road_network: RoadNetwork, next_id: int):
     root.extend(junction_elements)
 
 
-if __name__ == "__main__":
-    input_file = "veglenkesekvens2a.json"
-    output_file = "../OpenDrive/gloshaugen_nvdb.xodr"
-    print(f"Converting NVDB file {input_file} to OpenDrive format")
+def main(config: Config):
+    print(f"Converting NVDB file {config.input_file} to OpenDrive format")
     start_time = datetime.now()
 
-    roads = load_json(get_file_path(input_file))
+    roads = load_json(config.input_file)
 
     merge_linked_locations(roads)
     nodes = get_nodes(roads)
@@ -336,6 +352,10 @@ if __name__ == "__main__":
     # set min/max coordinates
     header = root.find("header")
     minx, miny, maxx, maxy = road_network.minmax_xy
+    if not SAVE_RELATIVE_COORDINATES:
+        minx, miny = get_utm_coordinates(minx, miny)
+        maxx, maxy = get_utm_coordinates(maxx, maxy)
+
     header.set("west", str(minx))
     header.set("south", str(miny))
     header.set("east", str(maxx))
@@ -344,7 +364,15 @@ if __name__ == "__main__":
     #ElementTree.tostring(xodr, xml_declaration=True)
     ET.indent(root, space="    ")
     #print(ET.tostring(xodr, doctype='<?xml version="1.0" encoding="UTF-8"?>', pretty_print=True).decode())
-    ElementTree(root).write(get_file_path(output_file), doctype='<?xml version="1.0" encoding="UTF-8"?>', encoding="utf-8")
+    ElementTree(root).write(config.output_file, doctype='<?xml version="1.0" encoding="UTF-8"?>', encoding="utf-8")
 
-    total_time = datetime.now() - start_time
-    print(f"Finished in {total_time.total_seconds():.2f} seconds")
+    total_time = (datetime.now() - start_time).total_seconds()
+    print(f"Finished in {total_time:.2f} seconds")
+
+
+if __name__ == "__main__":
+    gløshaugen = Config("../Notebooks/veglenkesekvens_gloshaugen.json", "../OpenDrive/gloshaugen_nvdb.xodr", "270000,7039700,271200,7041000")
+    sandmoen = Config("../Notebooks/veglenkesekvens_sandmoen.json", "../OpenDrive/sandmoen_nvdb.xodr", "267500,7030500,268500,7031500")
+    sandmoen1 = Config("../Notebooks/nvdb_multi_sandmoen/veglenkesekvens_sandmoen_5000.json", "../OpenDrive/gloshaugen_test.xodr", "270000,7039700,271200,7041000")
+
+    main(sandmoen)
