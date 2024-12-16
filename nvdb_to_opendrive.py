@@ -160,7 +160,7 @@ def generate_single_road(sequence: dict, road_object: Road) -> Element:
 
 
 def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[int]], road_network: RoadNetwork, next_id: int):
-    chains = filter_road_sequence(sequence)
+    chains = filter_road_sequence(sequence)  # TODO: use nodes as explicit link between chains instead of start position order
     portals_to_nodes = {portal["id"]: portal["tilkobling"]["nodeid"] for portal in sequence["porter"]}
 
     start_node_id = None
@@ -192,13 +192,11 @@ def generate_road_sequence(root: Element, sequence: dict, nodes: dict[int, list[
         start_node_id = start_node_id if start_node_id is not None else portals_to_nodes[chain["startport"]]
         end_node_id = portals_to_nodes[chain["sluttport"]]
 
-        #print(len(nodes[end_node_id]))
         if len(nodes[end_node_id]) <= 2 and i != len(chains) - 1:  # normal road connection and not at end
             continue  # merge current with next road segment
 
         # make road
-        #road_id = f"{sequence['veglenkesekvensid']}_{id_suffix}"
-        road_id = str(next_id)
+        road_id = str(next_id)  # f"{sequence['veglenkesekvensid']}_{id_suffix}"
         road_object = Road(road_segments, road_id, shorten=JUNCTION_MARGIN)
         road_network.add_road(road_object)
         road_network.add_junction(str(start_node_id), JunctionConnection(road_object, start=True))
